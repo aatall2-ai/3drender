@@ -1,0 +1,3685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SDA.Render3D v4</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0c0b10;overflow:hidden;font-family:'Inter',system-ui,sans-serif}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+
+/* ── Drop Zone (shown before JSON loaded) ── */
+#drop-screen{position:fixed;inset:0;z-index:100;background:#0c0b10;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 0.5s ease}
+#drop-screen.hidden{opacity:0;pointer-events:none}
+.drop-zone{border:2px dashed rgba(14,116,144,0.4);border-radius:20px;padding:60px 80px;text-align:center;cursor:pointer;transition:all 0.3s ease;background:rgba(14,116,144,0.03);max-width:500px}
+.drop-zone:hover,.drop-zone.drag-over{border-color:#0e7490;background:rgba(14,116,144,0.08);transform:translateY(-3px);box-shadow:0 12px 40px rgba(14,116,144,0.15)}
+.drop-zone input{display:none}
+.drop-title{font-size:28px;font-weight:800;color:#0e7490;letter-spacing:-0.03em;margin-bottom:8px}
+.drop-sub{font-size:13px;color:rgba(255,255,255,0.35);margin-bottom:20px}
+.drop-icon{font-size:48px;opacity:0.4;margin-bottom:16px}
+.drop-hint{font-size:11px;color:rgba(255,255,255,0.2);margin-top:16px}
+.brand-tag{position:absolute;top:20px;left:24px;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:rgba(14,116,144,0.5)}
+
+/* ── HUD (shown during 3D) ── */
+#hud{position:fixed;inset:0;z-index:10;pointer-events:none;font-family:'DM Mono',monospace,system-ui}
+.hud-badge{background:rgba(0,0,0,0.55);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:6px 12px;font-size:11px;color:rgba(255,255,255,0.5)}
+#crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:20px;height:20px}
+#crosshair::before,#crosshair::after{content:'';position:absolute;background:rgba(255,255,255,0.4)}
+#crosshair::before{top:50%;left:0;right:0;height:1px}
+#crosshair::after{left:50%;top:0;bottom:0;width:1px}
+#hint{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:10;color:rgba(255,255,255,0.4);font:0.7rem/1.5 sans-serif;padding:6px 16px;border-radius:20px;background:rgba(0,0,0,0.4);pointer-events:none}
+
+/* ── Touch controls ── */
+.joystick-zone{position:fixed;bottom:24px;left:24px;width:130px;height:130px;z-index:20;touch-action:none;display:none}
+.joystick-ring{position:absolute;inset:0;border:2px solid rgba(255,255,255,0.12);border-radius:50%;background:rgba(0,0,0,0.15)}
+.joystick-knob{position:absolute;width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,0.18);border:2px solid rgba(255,255,255,0.25);left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none}
+.look-zone{position:fixed;top:0;right:0;width:55%;height:100%;z-index:15;touch-action:none;display:none}
+
+/* ── Describe box ── */
+.describe-section{margin-top:32px;max-width:500px;width:100%}
+.describe-or{color:rgba(255,255,255,0.2);font-size:12px;text-align:center;margin:20px 0;letter-spacing:0.1em;text-transform:uppercase}
+.describe-box{width:100%;min-height:80px;max-height:160px;background:rgba(14,116,144,0.06);border:1px solid rgba(14,116,144,0.25);border-radius:12px;color:rgba(255,255,255,0.8);font:14px/1.6 'Inter',system-ui,sans-serif;padding:14px 16px;resize:vertical;outline:none;transition:border-color 0.3s}
+.describe-box::placeholder{color:rgba(255,255,255,0.2)}
+.describe-box:focus{border-color:rgba(14,116,144,0.6)}
+.describe-btn{margin-top:12px;width:100%;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,#0e7490,#155e75);color:white;font:600 14px/1 'Inter',system-ui,sans-serif;cursor:pointer;letter-spacing:0.02em;transition:all 0.2s}
+.describe-btn:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(14,116,144,0.4)}
+.describe-btn:active{transform:translateY(0)}
+.describe-examples{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.describe-chip{background:rgba(14,116,144,0.10);border:1px solid rgba(14,116,144,0.18);border-radius:20px;padding:4px 12px;font-size:11px;color:rgba(255,255,255,0.35);cursor:pointer;transition:all 0.2s}
+.describe-chip:hover{background:rgba(14,116,144,0.20);color:rgba(255,255,255,0.6)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- Drop screen -->
+<div id="drop-screen">
+  <div class="brand-tag">SDA.Render3D</div>
+  <div class="drop-zone" id="drop-zone">
+    <div class="drop-icon">◈</div>
+    <div class="drop-title">Drop Environment JSON</div>
+    <div class="drop-sub">Declarative 3D — describe it, see it</div>
+    <input type="file" id="file-input" accept=".json">
+    <div class="drop-hint">or click to browse</div>
+  </div>
+  <div class="describe-section">
+    <div class="describe-or">— or describe it —</div>
+    <textarea class="describe-box" id="describe-input" placeholder="a large old warehouse with 6 rows of racking, 4 dock doors, an office, and 3 forklifts"></textarea>
+    <button class="describe-btn" id="describe-btn">Build World</button>
+    <div class="describe-examples">
+      <span class="describe-chip" data-text="a small clean office building, 3 floors">office</span>
+      <span class="describe-chip" data-text="a large old warehouse with 5 rows of racking, 6 dock doors, 3 forklifts, a break room, moody lighting">warehouse</span>
+      <span class="describe-chip" data-text="a hospital floor with 2 wards, 8 beds each, a nurses station, clean and bright">hospital</span>
+      <span class="describe-chip" data-text="a downtown block with 4 buildings, intersection, parking, trees, street lights, outdoor">downtown</span>
+      <span class="describe-chip" data-text="a suburb neighborhood with 6 houses, a park, playground, pond, trees, outdoor">suburb</span>
+      <span class="describe-chip" data-text="a strip mall with 5 stores, gas station, large parking lot, billboard, outdoor">strip mall</span>
+      <span class="describe-chip" data-text="an abandoned factory, huge, very old, moody, mostly empty, 2 rows of racking">abandoned</span>
+      <span class="describe-chip" data-text="a snowy park with pine trees, a frozen pond, playground, outdoor">winter park</span>
+    </div>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud" style="display:none">
+  <div id="crosshair"></div>
+  <div style="position:absolute;top:12px;left:12px;display:flex;align-items:center;gap:8px">
+    <div id="hud-brand" style="padding:5px 12px;border-radius:5px;display:none">
+      <span id="hud-logo" style="font-weight:800;font-size:14px"></span>
+    </div>
+    <span id="hud-subtitle" style="color:rgba(255,255,255,0.3);font-size:10px"></span>
+  </div>
+  <div class="hud-badge" style="position:absolute;top:12px;right:12px">
+    <span id="fps">--</span> FPS | <span id="drawn">0</span> objs
+  </div>
+  <div id="pos" class="hud-badge" style="position:absolute;bottom:12px;left:12px">X:0 Z:0</div>
+    <div id="door-hint" class="hud-badge" style="position:absolute;bottom:50px;left:50%;transform:translateX(-50%);opacity:0;transition:opacity 0.3s">🚪 <span id="door-name"></span></div>
+</div>
+
+<div id="hint" style="display:none">WASD move · Mouse look · Shift run · Click to lock + enable audio</div>
+<div class="joystick-zone" id="joystick"><div class="joystick-ring"></div><div class="joystick-knob" id="knob"></div></div>
+<div class="look-zone" id="look-zone"></div>
+
+<script>
+'use strict';
+
+// ══════════════════════════════════════════════════
+// MATH
+// ══════════════════════════════════════════════════
+function persp(f,a,n,r){const t=1/Math.tan(f/2),d=1/(n-r);return new Float32Array([t/a,0,0,0,0,t,0,0,0,0,(r+n)*d,-1,0,0,2*r*n*d,0]);}
+function look(e,c,u){let zx=e[0]-c[0],zy=e[1]-c[1],zz=e[2]-c[2],l=1/Math.sqrt(zx*zx+zy*zy+zz*zz);zx*=l;zy*=l;zz*=l;let xx=u[1]*zz-u[2]*zy,xy=u[2]*zx-u[0]*zz,xz=u[0]*zy-u[1]*zx;l=1/Math.sqrt(xx*xx+xy*xy+xz*xz);xx*=l;xy*=l;xz*=l;let yx=zy*xz-zz*xy,yy=zz*xx-zx*xz,yz=zx*xy-zy*xx;return new Float32Array([xx,yx,zx,0,xy,yy,zy,0,xz,yz,zz,0,-(xx*e[0]+xy*e[1]+xz*e[2]),-(yx*e[0]+yy*e[1]+yz*e[2]),-(zx*e[0]+zy*e[1]+zz*e[2]),1]);}
+function m4m(a,b){const o=new Float32Array(16);for(let i=0;i<4;i++)for(let j=0;j<4;j++)o[j*4+i]=a[i]*b[j*4]+a[4+i]*b[j*4+1]+a[8+i]*b[j*4+2]+a[12+i]*b[j*4+3];return o;}
+
+// ══════════════════════════════════════════════════
+// MODEL — SDA state layer
+// ══════════════════════════════════════════════════
+class Model {
+    constructor(init = {}) {
+        this.state = structuredClone(init);
+        this._observers = []; this._oid = 0;
+        this._batching = false; this._bp = [];
+    }
+    get(path) {
+        if (!path) return this.state;
+        return path.split('.').reduce((o, k) => o && o[k] !== undefined ? o[k] : undefined, this.state);
+    }
+    set(path, value, opts = {}) {
+        const keys = path.split('.'), last = keys.pop();
+        const target = keys.reduce((o, k) => { if (!o[k] || typeof o[k] !== 'object') o[k] = {}; return o[k]; }, this.state);
+        target[last] = value;
+        if (this._batching) { this._bp.push(path); return; }
+        if (!opts.silent) this.notify(path);
+    }
+    getState() { return this.state; }
+    subscribe(cb, filter = null) {
+        const id = ++this._oid;
+        this._observers.push({ id, cb, filter });
+        return () => { this._observers = this._observers.filter(o => o.id !== id); };
+    }
+    notify(path = '*') {
+        this._observers.forEach(obs => {
+            if (obs.filter && path !== '*' && !path.startsWith(obs.filter) && !obs.filter.startsWith(path)) return;
+            try { obs.cb(this.state, { path }); } catch (e) { console.error('Observer:', e); }
+        });
+    }
+    batch(fn) {
+        this._batching = true; this._bp = [];
+        try { fn(); } finally { this._batching = false; }
+        const u = [...new Set(this._bp)];
+        if (u.includes('*')) this.notify('*'); else u.forEach(p => this.notify(p));
+        this._bp = [];
+    }
+}
+
+// ══════════════════════════════════════════════════
+// VIEW — DOM projections
+// ══════════════════════════════════════════════════
+class View {
+    constructor() { this._projections = []; this._unsub = null; }
+    addProjection(name, filter, fn) { this._projections.push({ name, filter, fn }); }
+    observe(model) {
+        if (this._unsub) this._unsub();
+        this._unsub = model.subscribe((state, change) => {
+            const p = change.path || '*';
+            for (const proj of this._projections) {
+                if (p === '*' || !proj.filter || p.startsWith(proj.filter) || proj.filter.startsWith(p))
+                    try { proj.fn(state, change); } catch (e) { console.error('Projection [' + proj.name + ']:', e); }
+            }
+        });
+    }
+    stop() { if (this._unsub) { this._unsub(); this._unsub = null; } }
+}
+
+// ══════════════════════════════════════════════════
+// MESH GENERATORS
+// ══════════════════════════════════════════════════
+function genCyl(seg){const V=[],I=[];for(let i=0;i<=seg;i++){const a=i/seg*Math.PI*2,c=Math.cos(a),s=Math.sin(a);V.push(c,-1,s,c,0,s);V.push(c,1,s,c,0,s);}for(let i=0;i<seg;i++){const b=i*2,t=b+1,bn=(i+1)*2,tn=bn+1;I.push(b,bn,t,t,bn,tn);}const tc=V.length/6;V.push(0,1,0,0,1,0);for(let i=0;i<=seg;i++){const a=i/seg*Math.PI*2;V.push(Math.cos(a),1,Math.sin(a),0,1,0);}for(let i=0;i<seg;i++)I.push(tc,tc+1+i,tc+2+i);const bc=V.length/6;V.push(0,-1,0,0,-1,0);for(let i=0;i<=seg;i++){const a=i/seg*Math.PI*2;V.push(Math.cos(a),-1,Math.sin(a),0,-1,0);}for(let i=0;i<seg;i++)I.push(bc,bc+2+i,bc+1+i);return{V:new Float32Array(V),I:new Uint16Array(I)};}
+
+function genSphere(latS,lonS){const V=[],I=[];for(let la=0;la<=latS;la++){const th=la/latS*Math.PI,st=Math.sin(th),ct=Math.cos(th);for(let lo=0;lo<=lonS;lo++){const ph=lo/lonS*Math.PI*2,x=st*Math.cos(ph),y=ct,z=st*Math.sin(ph);V.push(x,y,z,x,y,z);}}for(let la=0;la<latS;la++)for(let lo=0;lo<lonS;lo++){const a=la*(lonS+1)+lo,b=a+lonS+1;I.push(a,b,a+1,a+1,b,b+1);}return{V:new Float32Array(V),I:new Uint16Array(I)};}
+
+function genBevelBox(bev){const V=[],I=[];const b=bev,ib=1-b;function quad(v0,v1,v2,v3,nx,ny,nz){const base=V.length/6;V.push(v0[0],v0[1],v0[2],nx,ny,nz,v1[0],v1[1],v1[2],nx,ny,nz,v2[0],v2[1],v2[2],nx,ny,nz,v3[0],v3[1],v3[2],nx,ny,nz);I.push(base,base+1,base+2,base,base+2,base+3);}quad([-ib,-ib,1],[ib,-ib,1],[ib,ib,1],[-ib,ib,1],0,0,1);quad([ib,-ib,-1],[-ib,-ib,-1],[-ib,ib,-1],[ib,ib,-1],0,0,-1);quad([-ib,1,-ib],[ib,1,-ib],[ib,1,ib],[-ib,1,ib],0,1,0);quad([-ib,-1,ib],[ib,-1,ib],[ib,-1,-ib],[-ib,-1,-ib],0,-1,0);quad([1,-ib,-ib],[1,-ib,ib],[1,ib,ib],[1,ib,-ib],1,0,0);quad([-1,-ib,ib],[-1,-ib,-ib],[-1,ib,-ib],[-1,ib,ib],-1,0,0);const s=3;function edgeBevel(p0,p1,n0,n1){for(let i=0;i<s;i++){const a0=i/s*Math.PI*0.5,a1=(i+1)/s*Math.PI*0.5;const c0=Math.cos(a0),s0=Math.sin(a0),c1=Math.cos(a1),s1=Math.sin(a1);const o0=[p0[0]+n0[0]*b*c0+n1[0]*b*s0,p0[1]+n0[1]*b*c0+n1[1]*b*s0,p0[2]+n0[2]*b*c0+n1[2]*b*s0];const o1=[p1[0]+n0[0]*b*c0+n1[0]*b*s0,p1[1]+n0[1]*b*c0+n1[1]*b*s0,p1[2]+n0[2]*b*c0+n1[2]*b*s0];const o2=[p1[0]+n0[0]*b*c1+n1[0]*b*s1,p1[1]+n0[1]*b*c1+n1[1]*b*s1,p1[2]+n0[2]*b*c1+n1[2]*b*s1];const o3=[p0[0]+n0[0]*b*c1+n1[0]*b*s1,p0[1]+n0[1]*b*c1+n1[1]*b*s1,p0[2]+n0[2]*b*c1+n1[2]*b*s1];const nmx=n0[0]*(c0+c1)+n1[0]*(s0+s1),nmy=n0[1]*(c0+c1)+n1[1]*(s0+s1),nmz=n0[2]*(c0+c1)+n1[2]*(s0+s1);const nl=Math.sqrt(nmx*nmx+nmy*nmy+nmz*nmz)||1;quad(o0,o1,o2,o3,nmx/nl,nmy/nl,nmz/nl);}}edgeBevel([-ib,ib,-ib],[-ib,ib,ib],[0,1,0],[-1,0,0]);edgeBevel([ib,ib,-ib],[ib,ib,ib],[0,1,0],[1,0,0]);edgeBevel([-ib,-ib,-ib],[-ib,-ib,ib],[0,-1,0],[-1,0,0]);edgeBevel([ib,-ib,-ib],[ib,-ib,ib],[0,-1,0],[1,0,0]);edgeBevel([-ib,ib,ib],[ib,ib,ib],[0,1,0],[0,0,1]);edgeBevel([-ib,ib,-ib],[ib,ib,-ib],[0,1,0],[0,0,-1]);edgeBevel([-ib,-ib,ib],[ib,-ib,ib],[0,-1,0],[0,0,1]);edgeBevel([-ib,-ib,-ib],[ib,-ib,-ib],[0,-1,0],[0,0,-1]);edgeBevel([-ib,-ib,ib],[-ib,ib,ib],[-1,0,0],[0,0,1]);edgeBevel([ib,-ib,ib],[ib,ib,ib],[1,0,0],[0,0,1]);edgeBevel([-ib,-ib,-ib],[-ib,ib,-ib],[-1,0,0],[0,0,-1]);edgeBevel([ib,-ib,-ib],[ib,ib,-ib],[1,0,0],[0,0,-1]);return{V:new Float32Array(V),I:new Uint16Array(I)};}
+
+function genHumanoid(){const V=[],I=[];const SEG=16;
+function cross(a,b){return[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+function nm(v){const l=Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);return l>1e-6?[v[0]/l,v[1]/l,v[2]/l]:[0,1,0];}
+function addRing(cx,cy,cz,ux,uy,uz,r){
+    const up=nm([ux,uy,uz]);let right;
+    if(Math.abs(up[1])<0.92)right=nm(cross([0,1,0],up));else right=nm(cross([0,0,1],up));
+    const fwd=cross(up,right);const base=V.length/6;
+    for(let i=0;i<=SEG;i++){const a=i/SEG*Math.PI*2,c=Math.cos(a),s=Math.sin(a);
+    const nx=right[0]*c+fwd[0]*s,ny=right[1]*c+fwd[1]*s,nz=right[2]*c+fwd[2]*s;
+    V.push(cx+nx*r,cy+ny*r,cz+nz*r,nx,ny,nz);}return base;}
+function connect(b1,b2){for(let i=0;i<SEG;i++)I.push(b1+i,b2+i,b1+i+1,b1+i+1,b2+i,b2+i+1);}
+function cap(base,cx,cy,cz,nx,ny,nz,dir){const ci=V.length/6;V.push(cx,cy,cz,nx,ny,nz);
+for(let i=0;i<SEG;i++){if(dir>0)I.push(ci,base+i,base+i+1);else I.push(ci,base+i+1,base+i);}}
+function limb(joints){const rings=[];
+for(let j=0;j<joints.length;j++){const p=joints[j];let dx,dy,dz;
+if(j<joints.length-1){dx=joints[j+1].x-p.x;dy=joints[j+1].y-p.y;dz=joints[j+1].z-p.z;}
+else{dx=p.x-joints[j-1].x;dy=p.y-joints[j-1].y;dz=p.z-joints[j-1].z;}
+rings.push(addRing(p.x,p.y,p.z,dx,dy,dz,p.r));}
+for(let i=0;i<rings.length-1;i++)connect(rings[i],rings[i+1]);
+const j0=joints[0],j1=joints[1],jn=joints[joints.length-1],jp=joints[joints.length-2];
+let dx=j1.x-j0.x,dy=j1.y-j0.y,dz=j1.z-j0.z,l=Math.sqrt(dx*dx+dy*dy+dz*dz);
+cap(rings[0],j0.x,j0.y,j0.z,-dx/l,-dy/l,-dz/l,-1);
+dx=jn.x-jp.x;dy=jn.y-jp.y;dz=jn.z-jp.z;l=Math.sqrt(dx*dx+dy*dy+dz*dz);
+cap(rings[rings.length-1],jn.x,jn.y,jn.z,dx/l,dy/l,dz/l,1);}
+
+// Head
+limb([{x:0,y:1.43,z:0,r:0.058},{x:0,y:1.48,z:0.003,r:0.072},{x:0,y:1.53,z:0.008,r:0.095},{x:0,y:1.58,z:0.010,r:0.108},{x:0,y:1.63,z:0.006,r:0.112},{x:0,y:1.68,z:0.002,r:0.110},{x:0,y:1.73,z:-0.005,r:0.100},{x:0,y:1.78,z:-0.012,r:0.075},{x:0,y:1.82,z:-0.018,r:0.040}]);
+// Nose
+limb([{x:0,y:1.65,z:0.105,r:0.018},{x:0,y:1.63,z:0.118,r:0.015},{x:0,y:1.61,z:0.112,r:0.016}]);
+// ── BEARD ──
+// Chin — center front, slight forward protrusion
+limb([{x:0,y:1.56,z:0.098,r:0.028},{x:0,y:1.53,z:0.105,r:0.035},{x:0,y:1.50,z:0.095,r:0.038},{x:0,y:1.48,z:0.075,r:0.032}]);
+// Left jaw line — cheek to chin
+limb([{x:-0.06,y:1.59,z:0.075,r:0.022},{x:-0.08,y:1.56,z:0.082,r:0.025},{x:-0.07,y:1.53,z:0.088,r:0.026},{x:-0.05,y:1.50,z:0.080,r:0.024}]);
+// Right jaw line
+limb([{x:0.06,y:1.59,z:0.075,r:0.022},{x:0.08,y:1.56,z:0.082,r:0.025},{x:0.07,y:1.53,z:0.088,r:0.026},{x:0.05,y:1.50,z:0.080,r:0.024}]);
+// Under-chin fill — connects chin to throat
+limb([{x:0,y:1.50,z:0.06,r:0.035},{x:0,y:1.48,z:0.04,r:0.040},{x:0,y:1.46,z:0.02,r:0.035}]);
+// Mustache — two small tubes flanking nose
+limb([{x:-0.02,y:1.61,z:0.108,r:0.012},{x:-0.03,y:1.60,z:0.105,r:0.010},{x:-0.04,y:1.59,z:0.095,r:0.008}]);
+limb([{x:0.02,y:1.61,z:0.108,r:0.012},{x:0.03,y:1.60,z:0.105,r:0.010},{x:0.04,y:1.59,z:0.095,r:0.008}]);
+// Ears
+limb([{x:-0.112,y:1.64,z:-0.01,r:0.014},{x:-0.122,y:1.65,z:-0.01,r:0.011},{x:-0.125,y:1.64,z:-0.01,r:0.008}]);
+limb([{x:0.112,y:1.64,z:-0.01,r:0.014},{x:0.122,y:1.65,z:-0.01,r:0.011},{x:0.125,y:1.64,z:-0.01,r:0.008}]);
+// Torso
+limb([{x:0,y:1.50,z:0,r:0.072},{x:0,y:1.44,z:0,r:0.105},{x:0,y:1.38,z:0,r:0.170},{x:0,y:1.28,z:0,r:0.158},{x:0,y:1.16,z:0,r:0.145},{x:0,y:1.04,z:0,r:0.135},{x:0,y:0.92,z:0,r:0.140},{x:0,y:0.80,z:0,r:0.160}]);
+// Left arm
+limb([{x:-0.08,y:1.40,z:0,r:0.065},{x:-0.14,y:1.38,z:0,r:0.055},{x:-0.18,y:1.28,z:0,r:0.046},{x:-0.20,y:1.14,z:0,r:0.040},{x:-0.20,y:1.00,z:0,r:0.036},{x:-0.19,y:0.88,z:0,r:0.033},{x:-0.19,y:0.76,z:0,r:0.029},{x:-0.188,y:0.70,z:0,r:0.035}]);
+// Right arm
+limb([{x:0.08,y:1.40,z:0,r:0.065},{x:0.14,y:1.38,z:0,r:0.055},{x:0.18,y:1.28,z:0,r:0.046},{x:0.20,y:1.14,z:0,r:0.040},{x:0.20,y:1.00,z:0,r:0.036},{x:0.19,y:0.88,z:0,r:0.033},{x:0.19,y:0.76,z:0,r:0.029},{x:0.188,y:0.70,z:0,r:0.035}]);
+// Left leg
+limb([{x:-0.04,y:0.88,z:0,r:0.080},{x:-0.06,y:0.78,z:0,r:0.068},{x:-0.08,y:0.64,z:0,r:0.058},{x:-0.085,y:0.50,z:0,r:0.052},{x:-0.088,y:0.38,z:0,r:0.046},{x:-0.085,y:0.26,z:0,r:0.043},{x:-0.082,y:0.14,z:0,r:0.041},{x:-0.080,y:0.06,z:0,r:0.040},{x:-0.080,y:0.02,z:0.04,r:0.048}]);
+// Right leg
+limb([{x:0.04,y:0.88,z:0,r:0.080},{x:0.06,y:0.78,z:0,r:0.068},{x:0.08,y:0.64,z:0,r:0.058},{x:0.085,y:0.50,z:0,r:0.052},{x:0.088,y:0.38,z:0,r:0.046},{x:0.085,y:0.26,z:0,r:0.043},{x:0.082,y:0.14,z:0,r:0.041},{x:0.080,y:0.06,z:0,r:0.040},{x:0.080,y:0.02,z:0.04,r:0.048}]);
+// ── HAIR — Full volume, comes down to brows ──
+// Main shell — lower start, big volume on top
+limb([{x:0,y:1.62,z:0.02,r:0.112},{x:0,y:1.67,z:0.01,r:0.128},{x:0,y:1.73,z:-0.008,r:0.125},{x:0,y:1.78,z:-0.038,r:0.105},{x:0,y:1.80,z:-0.065,r:0.085},{x:0,y:1.77,z:-0.095,r:0.070},{x:0,y:1.72,z:-0.112,r:0.062},{x:0,y:1.66,z:-0.115,r:0.055},{x:0,y:1.59,z:-0.098,r:0.042},{x:0,y:1.52,z:-0.068,r:0.025}]);
+// Fringe — sits right above eyebrows, covers the hairline
+limb([{x:-0.04,y:1.66,z:0.06,r:0.040},{x:0,y:1.67,z:0.07,r:0.042},{x:0.04,y:1.66,z:0.06,r:0.038}]);
+// Second fringe layer — depth behind first
+limb([{x:-0.03,y:1.65,z:0.04,r:0.038},{x:0.01,y:1.66,z:0.05,r:0.040},{x:0.05,y:1.65,z:0.04,r:0.035}]);
+// Left shell — comes down to ear
+limb([{x:-0.07,y:1.62,z:0.01,r:0.055},{x:-0.09,y:1.67,z:-0.01,r:0.054},{x:-0.10,y:1.72,z:-0.038,r:0.050},{x:-0.09,y:1.72,z:-0.075,r:0.046},{x:-0.08,y:1.66,z:-0.095,r:0.040},{x:-0.07,y:1.60,z:-0.082,r:0.032},{x:-0.06,y:1.53,z:-0.055,r:0.022}]);
+// Right shell
+limb([{x:0.07,y:1.62,z:0.01,r:0.052},{x:0.09,y:1.67,z:-0.01,r:0.050},{x:0.10,y:1.72,z:-0.038,r:0.048},{x:0.09,y:1.72,z:-0.075,r:0.044},{x:0.08,y:1.66,z:-0.095,r:0.038},{x:0.07,y:1.60,z:-0.082,r:0.030},{x:0.06,y:1.53,z:-0.055,r:0.020}]);
+// Left sideburn
+limb([{x:-0.105,y:1.65,z:-0.015,r:0.028},{x:-0.110,y:1.60,z:-0.018,r:0.024},{x:-0.105,y:1.55,z:-0.010,r:0.018}]);
+// Right sideburn
+limb([{x:0.105,y:1.65,z:-0.015,r:0.026},{x:0.110,y:1.60,z:-0.016,r:0.022},{x:0.105,y:1.55,z:-0.008,r:0.016}]);
+return{V:new Float32Array(V),I:new Uint16Array(I)};}
+
+
+// ══════════════════════════════════════════════════
+// SEEDED RNG — deterministic scene generation
+// ══════════════════════════════════════════════════
+let _seed = 42;
+function rng() { _seed = (_seed * 1103515245 + 12345) & 0x7fffffff; return (_seed >> 16) / 32767; }
+function resetRng(s) { _seed = s || 42; }
+
+
+// ══════════════════════════════════════════════════
+// GENERATORS — declarative → objects
+// Each generator reads a declaration + space context
+// and pushes objects into the output array
+// ══════════════════════════════════════════════════
+
+function add(O, x,y,z, sx,sy,sz, r,g,b, rough,metal, mesh) {
+    O.push({ x, y, z, sx, sy, sz, r, g, b, rough: rough??0.7, metal: metal??0, mesh: mesh??0 });
+}
+function shadow(O, x,z, sx,sz) { add(O, x,0.006,z, sx,0.001,sz, 0.12,0.11,0.10, 0.95,0); }
+
+
+// ── ENVELOPE ─────────────────────────────────────
+function genEnvelope(O, space, meta) {
+    const W = space.width, D = space.depth, H = space.height;
+    const hw = W/2, hd = D/2;
+    const age = space.age || 0;
+    const ageFactor = Math.min(age / 20, 1); // 0-1
+
+    // Floor
+    const fc = space.floor === 'polished' ? [0.52,0.50,0.48] : [0.42-ageFactor*0.04, 0.40-ageFactor*0.04, 0.38-ageFactor*0.03];
+    add(O, 0,-0.05,0, W,0.1,D, fc[0],fc[1],fc[2], 0.95,0);
+
+    // Ceiling
+    const cc = [0.82-ageFactor*0.04, 0.79-ageFactor*0.05, 0.73-ageFactor*0.06];
+    add(O, 0,H,0, W,0.15,D, cc[0],cc[1],cc[2], 0.65,0);
+
+    // Walls
+    add(O, hw,H/2,0, 0.25,H,D, 0.75,0.73,0.69, 0.8,0);
+    add(O, -hw,H/2,0, 0.25,H,D, 0.74,0.72,0.68, 0.8,0);
+    add(O, 0,H/2,-hd, W,H,0.25, 0.76,0.74,0.70, 0.8,0);
+    add(O, 0,H*0.7,hd, W,H*0.6,0.3, 0.73,0.71,0.67, 0.8,0); // dock wall
+
+    // Expansion joints
+    for (let fx=-hw+10; fx<hw; fx+=10) add(O, fx,0.005,0, 0.03,0.005,D, 0.35,0.33,0.31, 0.9,0);
+    for (let fz=-hd+10; fz<hd; fz+=10) add(O, 0,0.005,fz, W,0.005,0.03, 0.35,0.33,0.31, 0.9,0);
+
+    // Floor aging
+    if (ageFactor > 0) {
+        for (let i=0; i<Math.floor(12*ageFactor); i++) {
+            add(O, -20+rng()*40, 0.003, -30+rng()*55, 0.08+rng()*0.05,0.002,3+rng()*8, 0.28,0.26,0.24, 0.95,0);
+        }
+        // Oil stains
+        if (ageFactor > 0.3) {
+            add(O, -15,0.003,hd-12, 1.8,0.002,2.5, 0.22,0.20,0.19, 0.8,0);
+            add(O, 8,0.003,hd-16, 1.2,0.002,1.8, 0.24,0.22,0.20, 0.8,0);
+        }
+        // Worn zone near dock
+        add(O, 0,0.004,hd-12, W*0.6,0.002,8, 0.40,0.38,0.36, 0.95,0);
+    }
+
+    // Wall baseboard dirt
+    if (ageFactor > 0.1) {
+        add(O, hw-0.01,0.3,0, 0.02,0.6,D, 0.42,0.40,0.36, 0.9,0);
+        add(O, -hw+0.01,0.3,0, 0.02,0.6,D, 0.42,0.40,0.36, 0.9,0);
+        add(O, 0,0.3,-hd+0.01, W,0.6,0.02, 0.42,0.40,0.36, 0.9,0);
+    }
+
+    // Wall pilasters
+    for (let wz=-hd+5; wz<hd; wz+=12) {
+        add(O, hw-0.15,H/2,wz, 0.5,H,0.5, 0.76,0.74,0.72, 0.8,0);
+        add(O, -hw+0.15,H/2,wz, 0.5,H,0.5, 0.76,0.74,0.72, 0.8,0);
+    }
+
+    // Structural columns
+    if (space.columns) {
+        const cs = space.columns.spacing, inset = space.columns.inset || 10;
+        const isMetal = space.columns.material === 'steel';
+        for (let cx=-hw+inset; cx<hw; cx+=cs[0]) {
+            for (let cz=-hd+inset; cz<hd-10; cz+=cs[1]) {
+                if (isMetal) add(O, cx,H/2,cz, 0.35,H,0.35, 0.60,0.60,0.62, 0.4,0.8);
+                else add(O, cx,H/2,cz, 0.5,H,0.5, 0.70,0.68,0.65, 0.8,0);
+            }
+        }
+    }
+
+    // Ceiling lights
+    for (let lx=-hw+5; lx<hw; lx+=10) {
+        for (let lz=-hd+6; lz<hd-5; lz+=12) {
+            add(O, lx,H-0.12,lz, 1.4,0.10,0.40, 0.72,0.72,0.75, 0.3,0.7);
+            add(O, lx,H-0.24,lz, 1.2,0.04,0.32, 1.0,0.97,0.90, 0.1,0);
+        }
+    }
+
+    // Signage on north wall
+    add(O, 0,H-1.5,-hd+0.15, 7,1.2,0.10, 0.0,0.44,0.81, 0.3,0.1);
+}
+
+
+// ── RACKING ──────────────────────────────────────
+function genRacking(O, zone, space) {
+    const W = space.width, D = space.depth, H = space.height;
+    const hw = W/2, hd = D/2;
+    const rows = zone.rows || 4;
+    const levels = zone.levels || 4;
+    const rH = H * 0.8;
+    const rD = 1.3;
+    const aisleW = zone.aisleWidth || 3.8;
+    const rSp = rD*2 + aisleW;
+    const fill = zone.fill || 0.8;
+    const bayL = zone.bayLength || 2.7;
+
+    // Compute region
+    let rSX, rSZ, rEZ;
+    if (zone.region) {
+        rSX = zone.region.x ? zone.region.x[0] : -hw + 8;
+        rSZ = zone.region.z ? zone.region.z[0] : -hd + 8;
+        rEZ = zone.region.z ? zone.region.z[1] : hd - 18;
+    } else {
+        rSX = -hw + 8;
+        rSZ = -hd + 8;
+        rEZ = hd - 18;
+    }
+    const rLen = rEZ - rSZ;
+    const nBays = Math.floor(rLen / bayL);
+
+    for (let row = 0; row < rows; row++) {
+        const rx = rSX + row * rSp;
+        shadow(O, rx, (rSZ+rEZ)/2, rD*2.2, rLen);
+
+        for (let side = 0; side < 2; side++) {
+            const sx = rx + (side === 0 ? -rD*0.55 : rD*0.55);
+
+            // Uprights
+            for (let s = 0; s <= nBays; s += 2) {
+                const uz = rSZ + s * bayL;
+                const steelAge = rng()*0.12 - 0.06;
+                const sr = 0.50+steelAge, sg = 0.52+steelAge*0.8, sb = 0.55+steelAge*0.5;
+                add(O, sx-rD*0.35,rH/2,uz, 0.10,rH,0.10, sr,sg,sb, 0.25+rng()*0.15, 0.85);
+                add(O, sx+rD*0.35,rH/2,uz, 0.10,rH,0.10, sr,sg,sb, 0.25+rng()*0.15, 0.85);
+            }
+
+            // Beams + wire deck per level
+            for (let lvl = 1; lvl <= levels; lvl++) {
+                const by = lvl * (rH / (levels+0.5)) + 0.2;
+                const beamFade = rng() * 0.15;
+                const br = 0.88-beamFade*0.3, bg = 0.55-beamFade*0.2, bb = 0.06+beamFade*0.04;
+                add(O, sx-rD*0.32,by,(rSZ+rEZ)/2, 0.07,0.14,rLen, br,bg,bb, 0.35+rng()*0.15, 0.7);
+                add(O, sx+rD*0.32,by,(rSZ+rEZ)/2, 0.07,0.14,rLen, br,bg,bb, 0.35+rng()*0.15, 0.7);
+                // Wire deck
+                add(O, sx,by+0.08,(rSZ+rEZ)/2, rD*0.6,0.02,rLen, 0.55+rng()*0.08,0.55+rng()*0.06,0.58, 0.4,0.7);
+            }
+
+            // Cargo per bay
+            for (let lvl = 1; lvl <= Math.min(levels, 3); lvl++) {
+                const by = lvl * (rH / (levels+0.5)) + 0.2;
+                for (let b = 0; b < nBays; b++) {
+                    if (rng() > fill) continue;
+                    const bz = rSZ + b * bayL + bayL/2;
+                    // Pallet
+                    add(O, sx,by+0.10,bz, rD*0.85,0.14,bayL*0.9, 0.42+rng()*0.14,0.30+rng()*0.08,0.12+rng()*0.04, 0.85+rng()*0.1, 0);
+                    // Cargo box
+                    const bh = 0.4 + rng()*0.7;
+                    const ct = Math.floor(rng()*6);
+                    let cr,cg,cb,crough;
+                    if (ct===0) { cr=0.72+rng()*0.06; cg=0.58+rng()*0.06; cb=0.40+rng()*0.05; crough=0.85; }
+                    else if (ct===1) { cr=0.52+rng()*0.08; cg=0.40+rng()*0.06; cb=0.25+rng()*0.04; crough=0.9; }
+                    else if (ct===2) { cr=0.88+rng()*0.08; cg=0.88+rng()*0.06; cb=0.86+rng()*0.06; crough=0.2; }
+                    else if (ct===3) { cr=0.12+rng()*0.08; cg=0.28+rng()*0.10; cb=0.58+rng()*0.15; crough=0.45; }
+                    else if (ct===4) { cr=0.65+rng()*0.15; cg=0.12+rng()*0.08; cb=0.10+rng()*0.06; crough=0.7; }
+                    else { cr=0.55+rng()*0.20; cg=0.45+rng()*0.20; cb=0.35+rng()*0.20; crough=0.75; }
+                    add(O, sx,by+0.17+bh/2,bz, rD*(0.70+rng()*0.12),bh,bayL*(0.78+rng()*0.10), cr,cg,cb, crough, 0);
+                }
+            }
+        }
+
+        // Aisle stripe
+        add(O, rx,0.009,(rSZ+rEZ)/2, 0.12,0.005,rLen, 0.92,0.82,0.08, 0.6,0);
+        // End guards
+        add(O, rx-aisleW/2+0.15,0.4,rSZ-0.5, 0.15,0.8,0.15, 0.95,0.85,0.05, 0.4,0.6);
+        add(O, rx+aisleW/2-0.15,0.4,rSZ-0.5, 0.15,0.8,0.15, 0.95,0.85,0.05, 0.4,0.6);
+    }
+
+    // Store racking info for agent routing
+    return { rSX, rSp, rSZ, rEZ, rows, aisleW };
+}
+
+
+// ── DOCK ─────────────────────────────────────────
+function genDock(O, zone, space) {
+    const W = space.width, D = space.depth, H = space.height;
+    const hw = W/2, hd = D/2;
+    const n = zone.count || 4;
+    const doorW = zone.doorWidth || 3.2;
+    const doorH = zone.doorHeight || 4.0;
+    const dockSp = (W - 8) / n;
+    const wallZ = zone.wall === 'north' ? -hd : hd;
+    const sign = zone.wall === 'north' ? -1 : 1;
+
+    for (let i = 0; i < n; i++) {
+        const dx = -hw + 5 + i*dockSp + dockSp/2;
+        // Frame, door, plate, leveler
+        add(O, dx,doorH/2,wallZ-sign*0.05, doorW+0.4,doorH+0.3,0.12, 0.85,0.70,0.08, 0.5,0.5);
+        add(O, dx,doorH/2,wallZ-sign*0.15, doorW,doorH,0.06, 0.55,0.55,0.55, 0.4,0.6);
+        add(O, dx,doorH+0.5,wallZ-sign*0.02, 0.7,0.4,0.04, 0.0,0.44,0.81, 0.3,0.1);
+        add(O, dx,0.12,wallZ+sign*1.2, doorW+0.8,0.24,2.4, 0.50,0.48,0.45, 0.9,0);
+        // Bollards
+        add(O, dx-2,0.45,wallZ-sign*3.5, 0.14,0.9,0.14, 0.95,0.85,0.05, 0.4,0.6);
+        add(O, dx+2,0.45,wallZ-sign*3.5, 0.14,0.9,0.14, 0.95,0.85,0.05, 0.4,0.6);
+        // Bumpers
+        add(O, dx-1,1.2,wallZ+sign*0.1, 0.30,1.0,0.20, 0.08,0.08,0.08, 0.9,0.05);
+        add(O, dx+1,1.2,wallZ+sign*0.1, 0.30,1.0,0.20, 0.08,0.08,0.08, 0.9,0.05);
+        // Fill wall between doors
+        if (i > 0) add(O, dx-dockSp/2,doorH/2,wallZ, dockSp-doorW-0.4,doorH,0.3, 0.82,0.80,0.77, 0.75,0);
+    }
+    // Safety line
+    add(O, 0,0.008,wallZ-sign*5, W-4,0.004,0.12, 0.92,0.80,0.08, 0.6,0);
+}
+
+
+// ── FORKLIFT ─────────────────────────────────────
+function genForklift(O, eq) {
+    const fx = eq.position[0], fz = eq.position[1];
+    shadow(O, fx,fz, 2.2,4.0);
+    // Chassis
+    add(O, fx,0.32,fz+0.2, 1.15,0.50,1.6, 0.90,0.54,0.05, 0.4,0.6);
+    add(O, fx,0.62,fz-0.1, 1.10,0.12,1.2, 0.88,0.52,0.04, 0.4,0.6);
+    // Counterweight
+    add(O, fx,0.40,fz-1.05, 1.0,0.65,0.35, 0.28,0.28,0.30, 0.5,0.75);
+    // Overhead guard posts + roof
+    add(O, fx-0.50,1.02,fz-0.6, 0.06,1.30,0.06, 0.22,0.22,0.25, 0.3,0.85);
+    add(O, fx+0.50,1.02,fz-0.6, 0.06,1.30,0.06, 0.22,0.22,0.25, 0.3,0.85);
+    add(O, fx-0.50,1.02,fz+0.4, 0.06,1.30,0.06, 0.22,0.22,0.25, 0.3,0.85);
+    add(O, fx+0.50,1.02,fz+0.4, 0.06,1.30,0.06, 0.22,0.22,0.25, 0.3,0.85);
+    add(O, fx,1.70,fz-0.1, 1.08,0.06,1.1, 0.22,0.22,0.25, 0.3,0.85);
+    // Mast
+    add(O, fx-0.12,1.1,fz+1.05, 0.08,2.1,0.10, 0.30,0.30,0.33, 0.25,0.85);
+    add(O, fx+0.12,1.1,fz+1.05, 0.08,2.1,0.10, 0.30,0.30,0.33, 0.25,0.85);
+    // Forks
+    add(O, fx-0.30,0.06,fz+1.8, 0.08,0.04,1.5, 0.38,0.38,0.40, 0.2,0.9);
+    add(O, fx+0.30,0.06,fz+1.8, 0.08,0.04,1.5, 0.38,0.38,0.40, 0.2,0.9);
+    // Tires
+    add(O, fx-0.52,0.22,fz+0.45, 0.24,0.44,0.44, 0.08,0.08,0.08, 0.7,0.1, 1);
+    add(O, fx+0.52,0.22,fz+0.45, 0.24,0.44,0.44, 0.08,0.08,0.08, 0.7,0.1, 1);
+    add(O, fx,0.18,fz-0.85, 0.18,0.36,0.36, 0.08,0.08,0.08, 0.7,0.1, 1);
+    // Seat
+    add(O, fx,0.58,fz-0.3, 0.40,0.06,0.38, 0.12,0.12,0.14, 0.7,0.05);
+    // Beacon
+    add(O, fx,1.74,fz-0.1, 0.16,0.12,0.16, 0.95,0.50,0.0, 0.2,0.2, 1);
+}
+
+
+// ── PALLET JACK ──────────────────────────────────
+function genPalletJack(O, eq) {
+    const px = eq.position[0], pz = eq.position[1];
+    shadow(O, px,pz, 1.4,2.4);
+    add(O, px-0.22,0.06,pz, 0.08,0.04,1.4, 0.40,0.40,0.43, 0.3,0.85);
+    add(O, px+0.22,0.06,pz, 0.08,0.04,1.4, 0.40,0.40,0.43, 0.3,0.85);
+    add(O, px,0.16,pz-0.6, 0.32,0.14,0.45, 0.40,0.40,0.43, 0.35,0.8);
+    add(O, px,0.50,pz-0.85, 0.04,0.70,0.04, 0.35,0.35,0.38, 0.4,0.75);
+    add(O, px,0.88,pz-0.85, 0.25,0.04,0.04, 0.35,0.35,0.38, 0.4,0.75);
+}
+
+
+// ── STAGING ──────────────────────────────────────
+function genStaging(O, zone, space) {
+    const hw = space.width/2, hd = space.depth/2;
+    const z1 = zone.region?.z?.[0] ?? hd-15;
+    const z2 = zone.region?.z?.[1] ?? hd-8;
+    const nRows = zone.rows || 1;
+    const fill = zone.fill || 0.8;
+    const colors = [[0.68,0.55,0.38],[0.85,0.85,0.82],[0.50,0.38,0.24],[0.15,0.30,0.55],[0.65,0.15,0.12],[0.80,0.70,0.15]];
+
+    for (let row = 0; row < nRows; row++) {
+        const rz = z1 + row * 4;
+        for (let i = 0; i < 8; i++) {
+            const px = -18 + i * 5;
+            shadow(O, px, rz, 1.6, 1.4);
+            add(O, px,0.07,rz, 1.2,0.15,1.0, 0.45+rng()*0.10,0.33+rng()*0.08,0.14+rng()*0.06, 0.9,0);
+            if (rng() < fill) {
+                const sc = colors[Math.floor(rng()*colors.length)];
+                const bh = 0.4+rng()*0.7;
+                add(O, px,0.22+bh/2,rz, 1.05,bh,0.92, sc[0]+rng()*0.05,sc[1]+rng()*0.04,sc[2]+rng()*0.03, 0.7,0);
+            }
+        }
+    }
+}
+
+
+// ── SAFETY ───────────────────────────────────────
+function genSafety(O, zone, space) {
+    const hw = space.width/2, hd = space.depth/2, H = space.height;
+    const feSpacing = zone?.fireExtinguishers?.spacing || 18;
+
+    // Fire extinguishers on walls
+    for (let fz=-hd+8; fz<hd-5; fz+=feSpacing) {
+        add(O, hw-0.18,1.0,fz, 0.14,0.50,0.14, 0.85,0.10,0.08, 0.5,0.5, 1);
+        add(O, -hw+0.18,1.0,fz, 0.14,0.50,0.14, 0.85,0.10,0.08, 0.5,0.5, 1);
+    }
+
+    // Exit signs
+    function exitSign(x,y,z,sx,sy,sz) { add(O, x,y,z, sx,sy,sz, 0.0,0.75,0.15, 0.15,0, 3); }
+    exitSign(-hw+0.2,H-0.6,-hd+10, 0.06,0.30,0.55);
+    exitSign(-hw+0.2,H-0.6,hd-12, 0.06,0.30,0.55);
+    exitSign(hw-0.2,H-0.6,-hd+15, 0.06,0.30,0.55);
+    exitSign(hw-0.2,H-0.6,hd-8, 0.06,0.30,0.55);
+
+    // AED
+    add(O, 0,1.4,-hd+0.15, 0.50,0.40,0.12, 0.85,0.85,0.88, 0.4,0.3, 3);
+    add(O, 0,1.4,-hd+0.22, 0.44,0.34,0.02, 0.15,0.60,0.20, 0.3,0.1);
+}
+
+
+// ── OVERHEAD ─────────────────────────────────────
+function genOverhead(O, zone, space) {
+    const hw = space.width/2, hd = space.depth/2, H = space.height;
+
+    if (zone.fireSuppression) {
+        // Main trunk
+        add(O, 0,H-0.6,0, space.width-8,0.18,0.18, 0.72,0.15,0.12, 0.35,0.7, 1);
+        // Branches
+        for (let px=-hw+12; px<hw; px+=15) {
+            add(O, px,H-0.6,0, 0.18,0.18,space.depth-10, 0.72,0.15,0.12, 0.35,0.7, 1);
+            for (let sz=-hd+8; sz<hd-8; sz+=4) {
+                add(O, px,H-0.9,sz, 0.04,0.40,0.04, 0.60,0.58,0.55, 0.3,0.8, 1);
+                add(O, px,H-1.15,sz, 0.12,0.06,0.12, 0.70,0.65,0.55, 0.25,0.7);
+            }
+        }
+    }
+
+    // Electrical conduit
+    add(O, hw-0.35,3.0,0, 0.06,0.06,space.depth-6, 0.50,0.50,0.52, 0.25,0.8, 1);
+    add(O, -hw+0.35,3.0,0, 0.06,0.06,space.depth-6, 0.50,0.50,0.52, 0.25,0.8, 1);
+}
+
+
+// ── ROOM v2 — door cutouts, windows, interactive doors ──
+function genRoom(O, zone, space, doors) {
+    const [x1,z1,x2,z2] = zone.bounds;
+    const rh = zone.height || 3;
+    const cx=(x1+x2)/2, cz=(z1+z2)/2;
+    const wx=x2-x1, wz=z2-z1;
+    const t=0.18;
+    const wc = [0.82,0.80,0.77];
+    const doorW = 1.2, doorH = 2.2;
+    const door = zone.door || {};
+    const dWall = door.wall || 'east';
+    const dPos = door.position ?? cz;
+    const hasWindows = zone.windows !== false;
+
+    // Ceiling + light
+    add(O, cx,rh,cz, wx+t,0.12,wz+t, wc[0]-0.05,wc[1]-0.04,wc[2]-0.03, 0.65,0);
+    add(O, cx,rh-0.12,cz, 1.0,0.03,0.3, 1.0,0.97,0.90, 0.1,0);
+
+    // Floor (slightly different tone)
+    add(O, cx,0.005,cz, wx,0.01,wz, 0.55,0.53,0.50, 0.7,0);
+
+    // Helper: wall with door cutout
+    // wallAxis: 'x' means wall runs along x axis (north/south wall), 'z' means along z axis (east/west wall)
+    function wallWithDoor(wallX, wallZ, wallLen, wallAxis, doorCenter) {
+        const halfDoor = doorW / 2;
+        if (wallAxis === 'x') {
+            // Wall runs in X direction at fixed Z=wallZ
+            const leftEnd = doorCenter - halfDoor;
+            const rightEnd = doorCenter + halfDoor;
+            const leftLen = leftEnd - (cx - wx/2);
+            const rightLen = (cx + wx/2) - rightEnd;
+            // Left segment
+            if (leftLen > 0.1) add(O, cx-wx/2+leftLen/2, rh/2, wallZ, leftLen, rh, t, wc[0],wc[1],wc[2], 0.7, 0);
+            // Right segment
+            if (rightLen > 0.1) add(O, cx+wx/2-rightLen/2, rh/2, wallZ, rightLen, rh, t, wc[0],wc[1],wc[2], 0.7, 0);
+            // Header above door
+            const headerH = rh - doorH;
+            if (headerH > 0.1) add(O, doorCenter, doorH+headerH/2, wallZ, doorW+0.1, headerH, t, wc[0],wc[1],wc[2], 0.7, 0);
+            // Door frame
+            add(O, doorCenter-halfDoor-0.04, doorH/2, wallZ, 0.08, doorH, t+0.04, 0.45,0.45,0.48, 0.4, 0.6);
+            add(O, doorCenter+halfDoor+0.04, doorH/2, wallZ, 0.08, doorH, t+0.04, 0.45,0.45,0.48, 0.4, 0.6);
+            add(O, doorCenter, doorH+0.04, wallZ, doorW+0.16, 0.08, t+0.04, 0.45,0.45,0.48, 0.4, 0.6);
+            // Door sign
+            add(O, doorCenter, doorH+0.3, wallZ+(t/2+0.04)*(wallZ>cz?1:-1), 0.50, 0.20, 0.03, 0.0,0.44,0.81, 0.3, 0.1);
+            // Interactive door panel
+            if (doors) doors.push({ x:doorCenter, y:doorH/2, z:wallZ, w:doorW-0.06, h:doorH-0.04, d:0.06, axis:'y', range:3.0, open:0, name:zone.name });
+        } else {
+            // Wall runs in Z direction at fixed X=wallX
+            const leftEnd = doorCenter - halfDoor;
+            const rightEnd = doorCenter + halfDoor;
+            const leftLen = leftEnd - (cz - wz/2);
+            const rightLen = (cz + wz/2) - rightEnd;
+            if (leftLen > 0.1) add(O, wallX, rh/2, cz-wz/2+leftLen/2, t, rh, leftLen, wc[0],wc[1],wc[2], 0.7, 0);
+            if (rightLen > 0.1) add(O, wallX, rh/2, cz+wz/2-rightLen/2, t, rh, rightLen, wc[0],wc[1],wc[2], 0.7, 0);
+            const headerH = rh - doorH;
+            if (headerH > 0.1) add(O, wallX, doorH+headerH/2, doorCenter, t, headerH, doorW+0.1, wc[0],wc[1],wc[2], 0.7, 0);
+            add(O, wallX, doorH/2, doorCenter-halfDoor-0.04, t+0.04, doorH, 0.08, 0.45,0.45,0.48, 0.4, 0.6);
+            add(O, wallX, doorH/2, doorCenter+halfDoor+0.04, t+0.04, doorH, 0.08, 0.45,0.45,0.48, 0.4, 0.6);
+            add(O, wallX, doorH+0.04, doorCenter, t+0.04, 0.08, doorW+0.16, 0.45,0.45,0.48, 0.4, 0.6);
+            add(O, wallX+(t/2+0.04)*(wallX>cx?1:-1), doorH+0.3, doorCenter, 0.03, 0.20, 0.50, 0.0,0.44,0.81, 0.3, 0.1);
+            if (doors) doors.push({ x:wallX, y:doorH/2, z:doorCenter, w:0.06, h:doorH-0.04, d:doorW-0.06, axis:'y', range:3.0, open:0, name:zone.name });
+        }
+    }
+
+    // Solid wall helper
+    function solidWall(wallX, wallZ, len, axis) {
+        if (axis === 'x') add(O, cx, rh/2, wallZ, wx, rh, t, wc[0],wc[1],wc[2], 0.7, 0);
+        else add(O, wallX, rh/2, cz, t, rh, wz, wc[0],wc[1],wc[2], 0.7, 0);
+    }
+
+    // Build 4 walls — one has a door cutout
+    if (dWall === 'north') { wallWithDoor(0, z1, wx, 'x', dPos); solidWall(0,z2,wx,'x'); solidWall(x1,0,wz,'z'); solidWall(x2,0,wz,'z'); }
+    else if (dWall === 'south') { solidWall(0,z1,wx,'x'); wallWithDoor(0, z2, wx, 'x', dPos); solidWall(x1,0,wz,'z'); solidWall(x2,0,wz,'z'); }
+    else if (dWall === 'west') { solidWall(0,z1,wx,'x'); solidWall(0,z2,wx,'x'); wallWithDoor(x1, 0, wz, 'z', dPos); solidWall(x2,0,wz,'z'); }
+    else { /* east */ solidWall(0,z1,wx,'x'); solidWall(0,z2,wx,'x'); solidWall(x1,0,wz,'z'); wallWithDoor(x2, 0, wz, 'z', dPos); }
+
+    // Windows on exterior-facing walls (if room touches building edge)
+    if (hasWindows) {
+        const hw = (space?.width||100)/2, hd = (space?.depth||100)/2;
+        const winW = 1.0, winH = 1.0, winY = rh*0.55;
+        const winSpacing = 3.0;
+        // Check each wall for exterior adjacency
+        if (Math.abs(x1 + hw) < 1 && dWall !== 'west') { // west exterior
+            for (let wz2=z1+1.5; wz2<z2-1; wz2+=winSpacing)
+                add(O, x1-0.02, winY, wz2, 0.04, winH, winW, 0.22,0.28,0.35, 0.08, 0.15);
+        }
+        if (Math.abs(x2 - hw) < 1 && dWall !== 'east') {
+            for (let wz2=z1+1.5; wz2<z2-1; wz2+=winSpacing)
+                add(O, x2+0.02, winY, wz2, 0.04, winH, winW, 0.22,0.28,0.35, 0.08, 0.15);
+        }
+        if (Math.abs(z1 + hd) < 1 && dWall !== 'north') {
+            for (let wx2=x1+1.5; wx2<x2-1; wx2+=winSpacing)
+                add(O, wx2, winY, z1-0.02, winW, winH, 0.04, 0.22,0.28,0.35, 0.08, 0.15);
+        }
+    }
+
+    // Furniture
+    if (zone.furniture === 'office') {
+        add(O, cx,0.38,cz-wz*0.15, 1.4,0.06,0.7, 0.55,0.45,0.30, 0.7,0.1);
+        add(O, cx,0.60,cz-wz*0.15-0.5, 0.4,0.45,0.4, 0.22,0.22,0.25, 0.5,0.3);
+        add(O, cx,0.38+0.22,cz-wz*0.15+0.2, 0.50,0.35,0.04, 0.12,0.12,0.14, 0.3,0.4); // monitor
+        // Filing cabinet
+        add(O, cx+wx*0.3,0.55,cz+wz*0.3, 0.45,1.1,0.55, 0.50,0.50,0.52, 0.4,0.6, 3);
+        // Whiteboard on wall
+        add(O, cx,rh*0.55,z1+t/2+0.04, wx*0.5,rh*0.3,0.04, 0.92,0.92,0.94, 0.2,0.1);
+    } else if (zone.furniture === 'breakroom') {
+        add(O, cx,0.38,cz, 1.0,0.06,1.0, 0.80,0.78,0.75, 0.5,0.3);
+        // Chairs around table
+        for (const off of [[-0.6,0],[0.6,0],[0,-0.6],[0,0.6]])
+            add(O, cx+off[0]*1.2,0.25,cz+off[1]*1.2, 0.38,0.04,0.38, 0.22+rng()*0.04,0.22+rng()*0.03,0.28+rng()*0.04, 0.6,0.1);
+        // Vending machine
+        add(O, x1+0.4,0.9,z1+0.5, 0.65,1.8,0.55, 0.20,0.20,0.22, 0.4,0.5, 3);
+        add(O, x1+0.4,0.95,z1+0.22, 0.55,0.6,0.02, 0.15,0.20,0.28, 0.08,0.15); // vending glass
+        // Microwave
+        add(O, x2-0.5,0.82+0.16,z1+0.5, 0.50,0.32,0.40, 0.75,0.75,0.78, 0.4,0.4, 3);
+        // Counter
+        add(O, x2-0.5,0.82,z1+0.8, 0.60,0.05,1.2, 0.70,0.65,0.55, 0.6,0.1);
+    } else if (zone.furniture === 'toolcrib') {
+        add(O, cx,0.45,cz, 2.0,0.08,0.7, 0.35,0.35,0.38, 0.4,0.7);
+        add(O, cx+2,0.58,cz, 0.50,0.25,0.25, 0.72,0.12,0.10, 0.5,0.6, 3);
+        // Pegboard
+        add(O, cx,1.5,z1+t/2+0.04, wx*0.6,1.2,0.04, 0.70,0.65,0.55, 0.85,0);
+        // Shelving
+        add(O, x2-0.6,1.0,cz, 0.5,2.0,wz*0.6, 0.48,0.48,0.50, 0.35,0.8);
+        // Air compressor
+        add(O, x1+0.6,0.35,z2-0.6, 0.6,0.7,0.4, 0.78,0.20,0.15, 0.5,0.6);
+    }
+}
+
+
+// ── CORRIDOR ─────────────────────────────────────
+function genCorridor(O, zone, space) {
+    const path = zone.path || [[0,-20],[0,20]]; // [[x,z],[x,z],...]
+    const w = zone.width || 3.0;
+    const h = zone.height || 3.0;
+    const t = 0.15;
+    const wc = [0.85,0.83,0.80];
+
+    for (let i = 0; i < path.length-1; i++) {
+        const a = path[i], b = path[i+1];
+        const dx = b[0]-a[0], dz = b[1]-a[1];
+        const len = Math.sqrt(dx*dx+dz*dz);
+        const cx = (a[0]+b[0])/2, cz = (a[1]+b[1])/2;
+        const isNS = Math.abs(dz) >= Math.abs(dx);
+
+        if (isNS) {
+            // Walls along X, runs in Z
+            add(O, cx-w/2, h/2, cz, t, h, len, wc[0],wc[1],wc[2], 0.7, 0);
+            add(O, cx+w/2, h/2, cz, t, h, len, wc[0],wc[1],wc[2], 0.7, 0);
+            // Ceiling
+            add(O, cx, h, cz, w+t, 0.10, len, wc[0]-0.04,wc[1]-0.03,wc[2]-0.02, 0.65, 0);
+            // Floor
+            add(O, cx, 0.005, cz, w, 0.01, len, 0.55,0.53,0.50, 0.7, 0);
+            // Lights
+            for (let lz = -len/2+2; lz < len/2; lz += 4)
+                add(O, cx, h-0.08, cz+lz, 0.8,0.03,0.25, 1.0,0.97,0.90, 0.1, 0);
+            // Handrails
+            add(O, cx-w/2+0.08, 1.0, cz, 0.04,0.04,len, 0.55,0.55,0.58, 0.3,0.7, 1);
+            add(O, cx+w/2-0.08, 1.0, cz, 0.04,0.04,len, 0.55,0.55,0.58, 0.3,0.7, 1);
+        } else {
+            add(O, cx, h/2, cz-w/2, len, h, t, wc[0],wc[1],wc[2], 0.7, 0);
+            add(O, cx, h/2, cz+w/2, len, h, t, wc[0],wc[1],wc[2], 0.7, 0);
+            add(O, cx, h, cz, len, 0.10, w+t, wc[0]-0.04,wc[1]-0.03,wc[2]-0.02, 0.65, 0);
+            add(O, cx, 0.005, cz, len, 0.01, w, 0.55,0.53,0.50, 0.7, 0);
+            for (let lx = -len/2+2; lx < len/2; lx += 4)
+                add(O, cx+lx, h-0.08, cz, 0.25,0.03,0.8, 1.0,0.97,0.90, 0.1, 0);
+            add(O, cx, 1.0, cz-w/2+0.08, len,0.04,0.04, 0.55,0.55,0.58, 0.3,0.7, 1);
+            add(O, cx, 1.0, cz+w/2-0.08, len,0.04,0.04, 0.55,0.55,0.58, 0.3,0.7, 1);
+        }
+    }
+}
+
+
+// ── CONVEYOR ─────────────────────────────────────
+function genConveyor(O, agents, eq) {
+    const path = eq.path;
+    if (!path || path.length < 2) return null;
+
+    // Belt segments
+    const beltW = 0.80, beltH = 0.08;
+    for (let i = 0; i < path.length-1; i++) {
+        const a = path[i], b = path[i+1];
+        const cx=(a[0]+b[0])/2, cy=(a[1]+b[1])/2, cz=(a[2]+b[2])/2;
+        const dx=b[0]-a[0], dy=b[1]-a[1], dz=b[2]-a[2];
+        const segLen = Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if (Math.abs(dx) >= Math.abs(dz)) {
+            add(O, cx,cy,cz, segLen+0.1,beltH,beltW, 0.50,0.50,0.54, 0.3,0.75);
+            add(O, cx,cy+0.06,cz-beltW/2-0.03, segLen+0.1,0.10,0.05, 0.90,0.80,0.08, 0.4,0.6);
+            add(O, cx,cy+0.06,cz+beltW/2+0.03, segLen+0.1,0.10,0.05, 0.90,0.80,0.08, 0.4,0.6);
+        } else {
+            add(O, cx,cy,cz, beltW,beltH,segLen+0.1, 0.50,0.50,0.54, 0.3,0.75);
+            add(O, cx-beltW/2-0.03,cy+0.06,cz, 0.05,0.10,segLen+0.1, 0.90,0.80,0.08, 0.4,0.6);
+            add(O, cx+beltW/2+0.03,cy+0.06,cz, 0.05,0.10,segLen+0.1, 0.90,0.80,0.08, 0.4,0.6);
+        }
+    }
+
+    // Compute path for animation
+    const lens = []; let total = 0;
+    for (let i = 1; i < path.length; i++) {
+        const dx=path[i][0]-path[i-1][0], dy=path[i][1]-path[i-1][1], dz=path[i][2]-path[i-1][2];
+        const l = Math.sqrt(dx*dx+dy*dy+dz*dz);
+        lens.push(l); total += l;
+    }
+
+    // Init animated boxes
+    const boxes = [];
+    const count = eq.boxes || 10;
+    const speed = eq.speed || 1.8;
+    const colors = [[0.72,0.58,0.40],[0.68,0.55,0.38],[0.65,0.52,0.35],[0.85,0.85,0.82]];
+    let bDist = 0;
+    for (let i = 0; i < count; i++) {
+        bDist += 2.5 + rng()*4.5;
+        if (bDist > total) bDist -= total;
+        const bc = colors[Math.floor(rng()*colors.length)];
+        const bs = 0.35 + rng()*0.30;
+        boxes.push({ dist: bDist, speed: speed+rng()*0.4, sx:bs, sy:bs*(0.7+rng()*0.6), sz:bs, r:bc[0],g:bc[1],b:bc[2] });
+    }
+
+    return { path, lens, total, boxes };
+}
+
+
+// ── AGENTS ───────────────────────────────────────
+function genAgents(people, rackInfo, space) {
+    const agents = [];
+    const hw = space.width/2, hd = space.depth/2;
+    const skins = [[0.70,0.52,0.40],[0.85,0.68,0.55],[0.45,0.30,0.20],[0.60,0.42,0.30],[0.78,0.60,0.48],[0.92,0.78,0.65],[0.55,0.35,0.22]];
+    const hairs = [[0.15,0.10,0.06],[0.08,0.06,0.04],[0.55,0.28,0.10],[0.65,0.58,0.35],[0.20,0.15,0.10],[0.35,0.20,0.08],[0.10,0.08,0.06]];
+
+    for (const group of people) {
+        for (let i = 0; i < group.count; i++) {
+            let px, patrolZ1, patrolZ2;
+            if (group.area === 'aisles' && rackInfo) {
+                const aisle = i % rackInfo.rows;
+                px = rackInfo.rSX + aisle * rackInfo.rSp + rackInfo.rSp/2;
+                patrolZ1 = rackInfo.rSZ; patrolZ2 = rackInfo.rEZ;
+            } else if (group.area === 'staging') {
+                px = -5 + rng()*10; patrolZ1 = hd-18; patrolZ2 = hd-8;
+            } else if (group.area === 'loading') {
+                px = 12 + i*3; patrolZ1 = hd-8; patrolZ2 = hd-5;
+            } else {
+                px = rng()*hw*2 - hw; patrolZ1 = -hd+5; patrolZ2 = hd-10;
+            }
+            const si = Math.floor(rng()*skins.length);
+            agents.push({
+                px, pz: (patrolZ1+patrolZ2)/2, py: 0, dir: 1,
+                patrolZ1, patrolZ2,
+                speed: 0.5 + rng()*0.5,
+                phase: rng()*Math.PI*2,
+                skin: skins[si],
+                hair: hairs[Math.floor(rng()*hairs.length)],
+                outfit: Math.floor(rng()*5),
+                // Personality — drives animation & behavior
+                energy: 0.3 + rng()*0.7,
+                fidget: 0.1 + rng()*0.5,
+                // Behavior state machine
+                state: 'walking',   // walking | idle | looking
+                stateTimer: rng()*3,
+                lookAngle: 0,
+                walkPhase: rng()*Math.PI*2,
+            });
+        }
+    }
+    return agents;
+}
+
+
+// ── TERRAIN ──────────────────────────────────────
+function genTerrain(O, zone, space) {
+    const w = zone.width || space?.width || 200;
+    const d = zone.depth || space?.depth || 200;
+    const hw = w/2, hd = d/2;
+    const style = zone.style || 'grass';
+    const tileSize = zone.tileSize || 8;
+    const hillAmp = zone.elevation === 'rolling' ? 1.5 : zone.elevation === 'hilly' ? 3.0 : 0;
+
+    const colors = {
+        grass:  { base: [0.28,0.38,0.18], var: [0.06,0.08,0.04], rough: 0.92 },
+        dirt:   { base: [0.40,0.32,0.22], var: [0.06,0.05,0.04], rough: 0.95 },
+        gravel: { base: [0.50,0.48,0.44], var: [0.08,0.06,0.05], rough: 0.90 },
+        sand:   { base: [0.72,0.65,0.48], var: [0.06,0.04,0.03], rough: 0.88 },
+        snow:   { base: [0.88,0.90,0.92], var: [0.04,0.03,0.03], rough: 0.75 },
+        asphalt:{ base: [0.22,0.22,0.24], var: [0.03,0.03,0.02], rough: 0.85 },
+    };
+    const mat = colors[style] || colors.grass;
+
+    for (let tx = -hw; tx < hw; tx += tileSize) {
+        for (let tz = -hd; tz < hd; tz += tileSize) {
+            const cx = tx + tileSize/2, cz = tz + tileSize/2;
+            // Simple sine hill
+            let elev = 0;
+            if (hillAmp > 0) {
+                elev = Math.sin(cx*0.03)*Math.cos(cz*0.04)*hillAmp
+                     + Math.sin(cx*0.07+1)*Math.cos(cz*0.05+2)*hillAmp*0.4;
+            }
+            const cr = mat.base[0] + (rng()-0.5)*mat.var[0]*2;
+            const cg = mat.base[1] + (rng()-0.5)*mat.var[1]*2;
+            const cb = mat.base[2] + (rng()-0.5)*mat.var[2]*2;
+            add(O, cx, elev-0.05, cz, tileSize+0.05, 0.1, tileSize+0.05, cr,cg,cb, mat.rough, 0);
+        }
+    }
+}
+
+
+// ── STREET ───────────────────────────────────────
+function genStreet(O, zone) {
+    const w = zone.width || 12;
+    const p = zone.path || [[0,0],[0,100]]; // [[x,z], [x,z], ...]
+    const lanes = zone.lanes || 2;
+    const sidewalk = zone.sidewalk !== false;
+    const markings = zone.markings !== false;
+
+    for (let i = 0; i < p.length-1; i++) {
+        const a = p[i], b = p[i+1];
+        const dx = b[0]-a[0], dz = b[1]-a[1];
+        const len = Math.sqrt(dx*dx+dz*dz);
+        const cx = (a[0]+b[0])/2, cz = (a[1]+b[1])/2;
+        const isNS = Math.abs(dz) >= Math.abs(dx);
+
+        // Road surface
+        if (isNS) {
+            add(O, cx, 0.01, cz, w, 0.02, len, 0.22,0.22,0.24, 0.85, 0);
+        } else {
+            add(O, cx, 0.01, cz, len, 0.02, w, 0.22,0.22,0.24, 0.85, 0);
+        }
+
+        // Sidewalks
+        if (sidewalk) {
+            const sw = 2.0, sh = 0.15;
+            if (isNS) {
+                add(O, cx-w/2-sw/2, sh/2, cz, sw, sh, len, 0.62,0.60,0.56, 0.9, 0);
+                add(O, cx+w/2+sw/2, sh/2, cz, sw, sh, len, 0.62,0.60,0.56, 0.9, 0);
+                // Curbs
+                add(O, cx-w/2, sh/2, cz, 0.15, sh, len, 0.58,0.56,0.52, 0.85, 0);
+                add(O, cx+w/2, sh/2, cz, 0.15, sh, len, 0.58,0.56,0.52, 0.85, 0);
+            } else {
+                add(O, cx, sh/2, cz-w/2-sw/2, len, sh, sw, 0.62,0.60,0.56, 0.9, 0);
+                add(O, cx, sh/2, cz+w/2+sw/2, len, sh, sw, 0.62,0.60,0.56, 0.9, 0);
+                add(O, cx, sh/2, cz-w/2, len, sh, 0.15, 0.58,0.56,0.52, 0.85, 0);
+                add(O, cx, sh/2, cz+w/2, len, sh, 0.15, 0.58,0.56,0.52, 0.85, 0);
+            }
+        }
+
+        // Lane markings
+        if (markings) {
+            // Center line (yellow dashed)
+            const dashLen = 3, gapLen = 4;
+            if (isNS) {
+                for (let d = -len/2; d < len/2; d += dashLen+gapLen) {
+                    add(O, cx, 0.025, cz+d+dashLen/2, 0.12, 0.005, dashLen, 0.85,0.75,0.10, 0.5, 0);
+                }
+                // Edge lines (white solid)
+                add(O, cx-w/2+0.5, 0.025, cz, 0.10, 0.005, len, 0.90,0.90,0.88, 0.5, 0);
+                add(O, cx+w/2-0.5, 0.025, cz, 0.10, 0.005, len, 0.90,0.90,0.88, 0.5, 0);
+            } else {
+                for (let d = -len/2; d < len/2; d += dashLen+gapLen) {
+                    add(O, cx+d+dashLen/2, 0.025, cz, dashLen, 0.005, 0.12, 0.85,0.75,0.10, 0.5, 0);
+                }
+                add(O, cx, 0.025, cz-w/2+0.5, len, 0.005, 0.10, 0.90,0.90,0.88, 0.5, 0);
+                add(O, cx, 0.025, cz+w/2-0.5, len, 0.005, 0.10, 0.90,0.90,0.88, 0.5, 0);
+            }
+        }
+    }
+}
+
+
+// ── BUILDING ─────────────────────────────────────
+function genBuilding(O, zone) {
+    const pos = zone.position || [0, 0];
+    const fp = zone.footprint || [20, 14]; // [width, depth]
+    const floors = zone.floors || 3;
+    const floorH = zone.floorHeight || 3.2;
+    const h = floors * floorH;
+    const style = zone.style || 'commercial';
+    const bx = pos[0], bz = pos[1];
+    const fw = fp[0], fd = fp[1];
+
+    const styles = {
+        commercial: { wall: [0.72,0.70,0.66], trim: [0.42,0.44,0.48], winColor: [0.22,0.28,0.35], rough: 0.7, metal: 0.1 },
+        industrial: { wall: [0.55,0.55,0.58], trim: [0.40,0.40,0.42], winColor: [0.18,0.22,0.28], rough: 0.5, metal: 0.6 },
+        residential:{ wall: [0.78,0.72,0.65], trim: [0.88,0.85,0.80], winColor: [0.25,0.30,0.38], rough: 0.8, metal: 0 },
+        brick:      { wall: [0.55,0.28,0.22], trim: [0.60,0.58,0.55], winColor: [0.20,0.25,0.32], rough: 0.85, metal: 0 },
+    };
+    const s = styles[style] || styles.commercial;
+
+    // Main volume
+    add(O, bx, h/2, bz, fw, h, fd, s.wall[0],s.wall[1],s.wall[2], s.rough, s.metal);
+    // Shadow
+    shadow(O, bx, bz, fw+2, fd+2);
+
+    // Roof parapet
+    add(O, bx, h+0.3, bz, fw+0.3, 0.6, fd+0.3, s.trim[0],s.trim[1],s.trim[2], 0.6, 0.3);
+
+    // Windows per floor per side
+    const winW = 1.4, winH = 1.6, winD = 0.08;
+    for (let f = 0; f < floors; f++) {
+        const wy = f*floorH + floorH*0.5 + winH*0.2;
+        const nWinsX = Math.max(1, Math.floor((fw-2) / 3));
+        const nWinsZ = Math.max(1, Math.floor((fd-2) / 3));
+
+        // Front + back
+        for (let wi = 0; wi < nWinsX; wi++) {
+            const wx = bx - fw/2 + 1.5 + wi * ((fw-3)/(nWinsX-1||1));
+            add(O, wx, wy, bz-fd/2-0.01, winW, winH, winD, s.winColor[0],s.winColor[1],s.winColor[2], 0.08, 0.15);
+            add(O, wx, wy, bz+fd/2+0.01, winW, winH, winD, s.winColor[0],s.winColor[1],s.winColor[2], 0.08, 0.15);
+        }
+        // Sides
+        for (let wi = 0; wi < nWinsZ; wi++) {
+            const wz = bz - fd/2 + 1.5 + wi * ((fd-3)/(nWinsZ-1||1));
+            add(O, bx-fw/2-0.01, wy, wz, winD, winH, winW, s.winColor[0],s.winColor[1],s.winColor[2], 0.08, 0.15);
+            add(O, bx+fw/2+0.01, wy, wz, winD, winH, winW, s.winColor[0],s.winColor[1],s.winColor[2], 0.08, 0.15);
+        }
+
+        // Floor slab line (trim band between floors)
+        add(O, bx, (f+1)*floorH, bz-fd/2-0.02, fw+0.1, 0.12, 0.06, s.trim[0],s.trim[1],s.trim[2], 0.6, 0.2);
+        add(O, bx, (f+1)*floorH, bz+fd/2+0.02, fw+0.1, 0.12, 0.06, s.trim[0],s.trim[1],s.trim[2], 0.6, 0.2);
+    }
+
+    // Entry door
+    add(O, bx, 1.2, bz-fd/2-0.02, 2.0, 2.4, 0.08, 0.15,0.15,0.18, 0.3, 0.5, 3);
+    // Entry canopy
+    add(O, bx, 2.6, bz-fd/2-0.8, 3.0, 0.08, 1.6, s.trim[0],s.trim[1],s.trim[2], 0.5, 0.4);
+
+    // Rooftop HVAC unit
+    add(O, bx+fw*0.25, h+0.9, bz, 2.5, 1.2, 2.0, 0.52,0.52,0.55, 0.5, 0.6, 3);
+}
+
+
+// ── PARKING ──────────────────────────────────────
+function genParking(O, zone) {
+    const pos = zone.position || [0, 0];
+    const w = zone.width || 40;
+    const d = zone.depth || 20;
+    const rows = zone.rows || 2;
+    const fill = zone.fill ?? 0.6;
+    const px = pos[0], pz = pos[1];
+
+    // Lot surface
+    add(O, px, 0.005, pz, w, 0.01, d, 0.25,0.25,0.27, 0.88, 0);
+
+    // Parking lines + cars
+    const spaceW = 2.6, spaceD = 5.0;
+    const rowSpacing = spaceD * 2 + 3.5; // aisle between rows
+    const nSpaces = Math.floor((w-2) / spaceW);
+
+    for (let row = 0; row < rows; row++) {
+        const rz = pz - d/2 + 4 + row * rowSpacing;
+        for (let side = 0; side < 2; side++) {
+            const sz = rz + (side === 0 ? -spaceD/2 : spaceD/2);
+            for (let s = 0; s < nSpaces; s++) {
+                const sx = px - w/2 + 1.3 + s * spaceW;
+                // Stripe
+                add(O, sx-spaceW/2, 0.015, sz, 0.08, 0.005, spaceD, 0.90,0.90,0.88, 0.5, 0);
+                // Car
+                if (rng() < fill) {
+                    genVehicle(O, { type:'car', position:[sx, sz-(side===0?0.5:-0.5)], facing: side===0?'N':'S' });
+                }
+            }
+            // End stripe
+            add(O, px+w/2-1.3, 0.015, sz, 0.08, 0.005, spaceD, 0.90,0.90,0.88, 0.5, 0);
+        }
+    }
+
+    // Light poles
+    const poleSpacing = 12;
+    for (let lx = px-w/2+6; lx < px+w/2; lx += poleSpacing) {
+        add(O, lx, 3.5, pz, 0.12, 7.0, 0.12, 0.50,0.50,0.52, 0.3, 0.7, 1);
+        add(O, lx, 7.2, pz, 0.8, 0.15, 0.5, 0.55,0.55,0.58, 0.3, 0.6);
+        add(O, lx, 7.05, pz, 0.6, 0.08, 0.35, 1.0,0.97,0.90, 0.1, 0);
+    }
+}
+
+
+// ── VEHICLE ──────────────────────────────────────
+function genVehicle(O, zone) {
+    const pos = zone.position || [0, 0];
+    const vx = pos[0], vz = pos[1];
+    const type = zone.type || 'car';
+    const color = zone.color || [
+        [0.65,0.10,0.10],[0.10,0.15,0.55],[0.12,0.12,0.14],[0.85,0.85,0.82],
+        [0.20,0.35,0.18],[0.55,0.40,0.15],[0.40,0.40,0.42],[0.15,0.22,0.45]
+    ][Math.floor(rng()*8)];
+    const facing = zone.facing || 'N';
+    const isNS = facing==='N'||facing==='S';
+
+    shadow(O, vx, vz, isNS?1.8:4.2, isNS?4.2:1.8);
+
+    if (type === 'car' || type === 'sedan') {
+        const bw=1.8, bl=4.2, bh=1.1, cabH=0.7;
+        if (isNS) {
+            add(O, vx, bh/2, vz, bw, bh, bl, color[0],color[1],color[2], 0.35, 0.5);
+            add(O, vx, bh+cabH/2, vz-0.2, bw-0.15, cabH, bl*0.55, color[0]*0.95,color[1]*0.95,color[2]*0.95, 0.3, 0.5);
+            // Windshield
+            add(O, vx, bh+cabH*0.4, vz-bl*0.2, bw-0.25, cabH*0.7, 0.06, 0.15,0.20,0.28, 0.06, 0.1);
+            // Rear window
+            add(O, vx, bh+cabH*0.4, vz+bl*0.12, bw-0.25, cabH*0.6, 0.06, 0.15,0.20,0.28, 0.06, 0.1);
+            // Tires
+            add(O, vx-bw/2, 0.22, vz-bl*0.28, 0.20, 0.44, 0.44, 0.08,0.08,0.08, 0.7, 0.1, 1);
+            add(O, vx+bw/2, 0.22, vz-bl*0.28, 0.20, 0.44, 0.44, 0.08,0.08,0.08, 0.7, 0.1, 1);
+            add(O, vx-bw/2, 0.22, vz+bl*0.28, 0.20, 0.44, 0.44, 0.08,0.08,0.08, 0.7, 0.1, 1);
+            add(O, vx+bw/2, 0.22, vz+bl*0.28, 0.20, 0.44, 0.44, 0.08,0.08,0.08, 0.7, 0.1, 1);
+            // Headlights
+            add(O, vx-0.6, 0.6, vz-bl/2-0.01, 0.30, 0.18, 0.04, 0.90,0.88,0.80, 0.1, 0.3);
+            add(O, vx+0.6, 0.6, vz-bl/2-0.01, 0.30, 0.18, 0.04, 0.90,0.88,0.80, 0.1, 0.3);
+            // Taillights
+            add(O, vx-0.6, 0.6, vz+bl/2+0.01, 0.30, 0.15, 0.04, 0.75,0.10,0.08, 0.2, 0.1);
+            add(O, vx+0.6, 0.6, vz+bl/2+0.01, 0.30, 0.15, 0.04, 0.75,0.10,0.08, 0.2, 0.1);
+        } else {
+            add(O, vx, bh/2, vz, bl, bh, bw, color[0],color[1],color[2], 0.35, 0.5);
+            add(O, vx-0.2, bh+cabH/2, vz, bl*0.55, cabH, bw-0.15, color[0]*0.95,color[1]*0.95,color[2]*0.95, 0.3, 0.5);
+            add(O, vx-bl*0.28, 0.22, vz-bw/2, 0.44, 0.44, 0.20, 0.08,0.08,0.08, 0.7, 0.1, 1);
+            add(O, vx-bl*0.28, 0.22, vz+bw/2, 0.44, 0.44, 0.20, 0.08,0.08,0.08, 0.7, 0.1, 1);
+            add(O, vx+bl*0.28, 0.22, vz-bw/2, 0.44, 0.44, 0.20, 0.08,0.08,0.08, 0.7, 0.1, 1);
+            add(O, vx+bl*0.28, 0.22, vz+bw/2, 0.44, 0.44, 0.20, 0.08,0.08,0.08, 0.7, 0.1, 1);
+        }
+    } else if (type === 'truck' || type === 'pickup') {
+        const bw=2.0, bl=5.4, bh=1.4, cabH=0.8;
+        if (isNS) {
+            add(O, vx, bh/2, vz, bw, bh, bl, color[0],color[1],color[2], 0.4, 0.5);
+            add(O, vx, bh+cabH/2, vz-bl*0.18, bw-0.1, cabH, bl*0.4, color[0],color[1],color[2], 0.35, 0.5);
+            add(O, vx, bh/2+0.1, vz+bl*0.2, bw-0.1, bh-0.3, bl*0.35, 0.25,0.25,0.28, 0.6, 0.3);
+            // Tires (bigger)
+            for (const tz of [-bl*0.3, bl*0.3]) for (const tx of [-bw/2, bw/2]) {
+                add(O, vx+tx, 0.26, vz+tz, 0.24, 0.52, 0.52, 0.08,0.08,0.08, 0.7, 0.1, 1);
+            }
+        } else {
+            add(O, vx, bh/2, vz, bl, bh, bw, color[0],color[1],color[2], 0.4, 0.5);
+            add(O, vx-bl*0.18, bh+cabH/2, vz, bl*0.4, cabH, bw-0.1, color[0],color[1],color[2], 0.35, 0.5);
+        }
+    } else if (type === 'bus') {
+        const bw=2.5, bl=10, bh=1.6, cabH=1.4;
+        if (isNS) {
+            add(O, vx, bh/2+cabH/2, vz, bw, bh+cabH, bl, color[0],color[1],color[2], 0.4, 0.4);
+            // Window strip
+            add(O, vx-bw/2-0.01, bh*0.7+cabH*0.3, vz, 0.04, cabH*0.6, bl-1, 0.18,0.22,0.30, 0.08, 0.15);
+            add(O, vx+bw/2+0.01, bh*0.7+cabH*0.3, vz, 0.04, cabH*0.6, bl-1, 0.18,0.22,0.30, 0.08, 0.15);
+            for (const tz of [-bl*0.35, bl*0.35]) for (const tx of [-bw/2, bw/2]) {
+                add(O, vx+tx, 0.30, vz+tz, 0.28, 0.60, 0.60, 0.08,0.08,0.08, 0.7, 0.1, 1);
+            }
+        }
+    }
+}
+
+
+// ── FENCE ────────────────────────────────────────
+function genFence(O, zone) {
+    const path = zone.path || [[-20,0],[20,0]]; // [[x,z],[x,z],...]
+    const h = zone.height || 2.0;
+    const style = zone.style || 'chain'; // 'chain' | 'wood' | 'metal'
+    const postSpacing = zone.postSpacing || 3.0;
+
+    const matPost = style==='wood' ? { c:[0.40,0.30,0.18], r:0.85, m:0 }
+                  : { c:[0.50,0.50,0.52], r:0.3, m:0.8 };
+    const matRail = style==='wood' ? { c:[0.42,0.32,0.20], r:0.85, m:0 }
+                  : style==='chain' ? { c:[0.48,0.48,0.50], r:0.4, m:0.7 }
+                  : { c:[0.45,0.45,0.48], r:0.35, m:0.75 };
+
+    for (let i = 0; i < path.length-1; i++) {
+        const a = path[i], b = path[i+1];
+        const dx = b[0]-a[0], dz = b[1]-a[1];
+        const len = Math.sqrt(dx*dx+dz*dz);
+        const isNS = Math.abs(dz) >= Math.abs(dx);
+        const nPosts = Math.max(2, Math.floor(len/postSpacing)+1);
+
+        for (let p = 0; p < nPosts; p++) {
+            const t = p / (nPosts-1);
+            const ppx = a[0]+dx*t, ppz = a[1]+dz*t;
+            const postW = style==='wood' ? 0.12 : 0.08;
+            if (style==='wood') {
+                add(O, ppx, h/2, ppz, postW, h, postW, matPost.c[0]+rng()*0.06,matPost.c[1]+rng()*0.04,matPost.c[2]+rng()*0.03, matPost.r, matPost.m);
+            } else {
+                add(O, ppx, h/2, ppz, postW, h, postW, matPost.c[0],matPost.c[1],matPost.c[2], matPost.r, matPost.m, 1);
+            }
+        }
+
+        // Rails
+        const cx = (a[0]+b[0])/2, cz = (a[1]+b[1])/2;
+        if (style === 'wood') {
+            // 3 horizontal rails
+            for (let r = 0; r < 3; r++) {
+                const ry = 0.3 + r * (h-0.4)/2;
+                if (isNS) add(O, cx, ry, cz, 0.08,0.10,len, matRail.c[0]+rng()*0.04,matRail.c[1]+rng()*0.03,matRail.c[2]+rng()*0.02, matRail.r, matRail.m);
+                else add(O, cx, ry, cz, len,0.10,0.08, matRail.c[0]+rng()*0.04,matRail.c[1]+rng()*0.03,matRail.c[2]+rng()*0.02, matRail.r, matRail.m);
+            }
+        } else if (style === 'chain') {
+            // Fill panel (thin box representing mesh)
+            if (isNS) add(O, cx, h/2, cz, 0.03, h-0.2, len, matRail.c[0],matRail.c[1],matRail.c[2], matRail.r, matRail.m);
+            else add(O, cx, h/2, cz, len, h-0.2, 0.03, matRail.c[0],matRail.c[1],matRail.c[2], matRail.r, matRail.m);
+            // Top rail
+            if (isNS) add(O, cx, h, cz, 0.05, 0.05, len, matPost.c[0],matPost.c[1],matPost.c[2], matPost.r, matPost.m, 1);
+            else add(O, cx, h, cz, len, 0.05, 0.05, matPost.c[0],matPost.c[1],matPost.c[2], matPost.r, matPost.m, 1);
+        } else {
+            // Metal railing — top rail + mid rail
+            for (const ry of [h, h*0.5]) {
+                if (isNS) add(O, cx, ry, cz, 0.04,0.04,len, matRail.c[0],matRail.c[1],matRail.c[2], matRail.r, matRail.m, 1);
+                else add(O, cx, ry, cz, len,0.04,0.04, matRail.c[0],matRail.c[1],matRail.c[2], matRail.r, matRail.m, 1);
+            }
+        }
+    }
+}
+
+
+// ── FURNITURE LAYOUT ─────────────────────────────
+function genFurnitureLayout(O, zone, space) {
+    const pos = zone.position || [0, 0];
+    const w = zone.width || 20;
+    const d = zone.depth || 15;
+    const px = pos[0], pz = pos[1];
+    const preset = zone.preset || 'open-office';
+
+    if (preset === 'open-office') {
+        // Desk pods in rows
+        const deskW = 1.4, deskD = 0.7, deskH = 0.75;
+        const podCols = Math.floor((w-2) / 3.2);
+        const podRows = Math.floor((d-2) / 2.8);
+        for (let r = 0; r < podRows; r++) {
+            for (let c = 0; c < podCols; c++) {
+                const dx = px-w/2 + 1.6 + c*3.2;
+                const dz = pz-d/2 + 1.4 + r*2.8;
+                // Desk
+                add(O, dx, deskH, dz, deskW, 0.04, deskD, 0.70+rng()*0.08,0.65+rng()*0.06,0.55+rng()*0.05, 0.65, 0.1);
+                // Legs
+                for (const lx of [-deskW/2+0.05, deskW/2-0.05]) for (const lz of [-deskD/2+0.05, deskD/2-0.05])
+                    add(O, dx+lx, deskH/2, dz+lz, 0.04, deskH, 0.04, 0.50,0.50,0.52, 0.4, 0.6);
+                // Monitor
+                add(O, dx, deskH+0.22, dz-0.15, 0.50, 0.35, 0.04, 0.12,0.12,0.14, 0.3, 0.4);
+                add(O, dx, deskH+0.04, dz-0.15, 0.12, 0.08, 0.10, 0.50,0.50,0.52, 0.3, 0.7);
+                // Chair
+                add(O, dx, 0.25, dz+0.5, 0.45, 0.05, 0.45, 0.18+rng()*0.06,0.18+rng()*0.04,0.22+rng()*0.06, 0.7, 0.1);
+                add(O, dx, 0.50, dz+0.7, 0.40, 0.45, 0.04, 0.18+rng()*0.06,0.18+rng()*0.04,0.22+rng()*0.06, 0.7, 0.1);
+                // Divider between desks (low partition)
+                if (c < podCols-1)
+                    add(O, dx+1.6, deskH+0.15, dz, 0.03, 0.60, deskD+0.2, 0.65,0.65,0.68, 0.7, 0.1);
+            }
+        }
+    } else if (preset === 'hospital-ward') {
+        const nBeds = zone.beds || 6;
+        const bedSpacing = Math.min(3.5, (d-2) / nBeds);
+        for (let i = 0; i < nBeds; i++) {
+            const bz = pz-d/2 + 1.5 + i*bedSpacing;
+            // Bed frame
+            add(O, px, 0.35, bz, 2.0, 0.06, 0.9, 0.80,0.80,0.82, 0.4, 0.3);
+            add(O, px, 0.55, bz, 1.8, 0.08, 0.85, 0.88,0.88,0.90, 0.6, 0.05);
+            // Rails
+            add(O, px, 0.55, bz-0.42, 1.6, 0.35, 0.03, 0.55,0.55,0.58, 0.3, 0.7, 1);
+            add(O, px, 0.55, bz+0.42, 1.6, 0.35, 0.03, 0.55,0.55,0.58, 0.3, 0.7, 1);
+            // Headboard
+            add(O, px-0.95, 0.60, bz, 0.06, 0.70, 0.88, 0.55,0.55,0.58, 0.35, 0.6);
+            // IV pole
+            add(O, px+1.2, 1.0, bz-0.3, 0.04, 2.0, 0.04, 0.55,0.55,0.58, 0.25, 0.8, 1);
+            add(O, px+1.2, 2.05, bz-0.3, 0.25, 0.04, 0.25, 0.55,0.55,0.58, 0.3, 0.7);
+            // Side table
+            add(O, px+1.2, 0.38, bz+0.2, 0.45, 0.04, 0.35, 0.72,0.70,0.66, 0.6, 0.1);
+            // Curtain rod + curtain
+            if (i < nBeds-1)
+                add(O, px, 1.8, bz+bedSpacing/2, w*0.7, 0.03, 0.03, 0.55,0.55,0.58, 0.3, 0.7, 1);
+        }
+    } else if (preset === 'classroom') {
+        const dRows = Math.floor((d-3) / 2.2);
+        const dCols = Math.floor((w-2) / 2.0);
+        for (let r = 0; r < dRows; r++) {
+            for (let c = 0; c < dCols; c++) {
+                const dx = px-w/2 + 1.0 + c*2.0;
+                const dz = pz-d/2 + 2.0 + r*2.2;
+                // Student desk
+                add(O, dx, 0.72, dz, 0.65, 0.04, 0.50, 0.70,0.65,0.55, 0.7, 0.1);
+                add(O, dx, 0.36, dz, 0.04, 0.72, 0.04, 0.50,0.50,0.52, 0.4, 0.6);
+                // Chair
+                add(O, dx, 0.24, dz+0.4, 0.38, 0.04, 0.38, 0.20,0.22,0.45, 0.6, 0.2);
+                add(O, dx, 0.48, dz+0.55, 0.35, 0.40, 0.03, 0.20,0.22,0.45, 0.6, 0.2);
+            }
+        }
+        // Teacher desk
+        add(O, px, 0.76, pz-d/2+0.6, 1.6, 0.06, 0.8, 0.50,0.38,0.24, 0.7, 0.1);
+        // Whiteboard
+        add(O, px, 1.5, pz-d/2+0.05, w*0.6, 1.2, 0.04, 0.92,0.92,0.94, 0.2, 0.1);
+    }
+}
+
+
+// ── INTERSECTION (bonus) ─────────────────────────
+function genIntersection(O, zone) {
+    const pos = zone.position || [0, 0];
+    const size = zone.size || 16;
+    const ix = pos[0], iz = pos[1];
+
+    // Intersection pad
+    add(O, ix, 0.01, iz, size, 0.02, size, 0.22,0.22,0.24, 0.85, 0);
+
+    // Crosswalks (white stripes)
+    for (let side = 0; side < 4; side++) {
+        for (let s = -2; s <= 2; s++) {
+            const sw = 0.5, sl = 3.0;
+            if (side === 0) add(O, ix+s*1.0, 0.025, iz-size/2+1.5, sw, 0.005, sl, 0.90,0.90,0.88, 0.5, 0);
+            else if (side === 1) add(O, ix+s*1.0, 0.025, iz+size/2-1.5, sw, 0.005, sl, 0.90,0.90,0.88, 0.5, 0);
+            else if (side === 2) add(O, ix-size/2+1.5, 0.025, iz+s*1.0, sl, 0.005, sw, 0.90,0.90,0.88, 0.5, 0);
+            else add(O, ix+size/2-1.5, 0.025, iz+s*1.0, sl, 0.005, sw, 0.90,0.90,0.88, 0.5, 0);
+        }
+    }
+
+    // Stop lines
+    add(O, ix, 0.025, iz-size/2+0.2, size*0.35, 0.005, 0.25, 0.90,0.90,0.88, 0.5, 0);
+    add(O, ix, 0.025, iz+size/2-0.2, size*0.35, 0.005, 0.25, 0.90,0.90,0.88, 0.5, 0);
+
+    // Traffic signal poles
+    if (zone.signals !== false) {
+        for (const corner of [[-1,-1],[1,-1],[-1,1],[1,1]]) {
+            const cx = ix + corner[0]*(size/2-0.5), cz = iz + corner[1]*(size/2-0.5);
+            add(O, cx, 2.5, cz, 0.10, 5.0, 0.10, 0.30,0.30,0.32, 0.4, 0.7, 1);
+            add(O, cx-corner[0]*0.4, 4.6, cz, 0.30, 0.80, 0.30, 0.18,0.18,0.20, 0.5, 0.5, 3);
+            // Signal lights
+            add(O, cx-corner[0]*0.4, 5.0, cz-corner[1]*0.01, 0.12, 0.12, 0.08, 0.85,0.10,0.08, 0.2, 0.1);
+            add(O, cx-corner[0]*0.4, 4.65, cz-corner[1]*0.01, 0.12, 0.12, 0.08, 0.85,0.75,0.10, 0.2, 0.1);
+            add(O, cx-corner[0]*0.4, 4.30, cz-corner[1]*0.01, 0.12, 0.12, 0.08, 0.10,0.65,0.12, 0.2, 0.1);
+        }
+    }
+}
+
+
+// ── TREES ────────────────────────────────────────
+function genTrees(O, zone) {
+    const region = zone.region || { x:[-50,50], z:[-50,50] };
+    const count = zone.count || 12;
+    const species = zone.species || 'mixed'; // 'oak','pine','palm','mixed'
+    const clearCenter = zone.clearRadius || 0; // keep center open
+
+    const treeTypes = {
+        oak: { trunk:[0.10,0.22,0.08], canopy:[0.18,0.35,0.14], hVar:0.06, trunkH:[2.0,3.5], canopyR:[2.5,4.5], canopyH:0.8, mesh:2 },
+        pine: { trunk:[0.15,0.12,0.08], canopy:[0.08,0.28,0.10], hVar:0.04, trunkH:[3.0,5.0], canopyR:[1.5,2.5], canopyH:1.5, mesh:2 },
+        palm: { trunk:[0.22,0.18,0.12], canopy:[0.12,0.38,0.08], hVar:0.03, trunkH:[4.0,7.0], canopyR:[2.0,3.5], canopyH:0.5, mesh:2 },
+        birch: { trunk:[0.75,0.72,0.68], canopy:[0.25,0.42,0.15], hVar:0.08, trunkH:[2.5,4.0], canopyR:[2.0,3.5], canopyH:0.9, mesh:2 },
+    };
+    const available = species === 'mixed' ? ['oak','pine','birch'] : [species];
+
+    for (let i = 0; i < count; i++) {
+        const tx = region.x[0] + rng() * (region.x[1]-region.x[0]);
+        const tz = region.z[0] + rng() * (region.z[1]-region.z[0]);
+        if (clearCenter > 0 && Math.abs(tx) < clearCenter && Math.abs(tz) < clearCenter) continue;
+        const spec = treeTypes[available[Math.floor(rng()*available.length)]];
+        const th = spec.trunkH[0] + rng()*(spec.trunkH[1]-spec.trunkH[0]);
+        const cr = spec.canopyR[0] + rng()*(spec.canopyR[1]-spec.canopyR[0]);
+        const tw = 0.15 + rng()*0.25;
+        // Trunk
+        add(O, tx, th/2, tz, tw, th, tw, spec.trunk[0]+rng()*0.04, spec.trunk[1]+rng()*0.03, spec.trunk[2]+rng()*0.02, 0.9, 0, 1);
+        // Canopy
+        add(O, tx, th+cr*0.3, tz, cr, cr*spec.canopyH, cr, spec.canopy[0]+rng()*spec.hVar, spec.canopy[1]+rng()*spec.hVar, spec.canopy[2]+rng()*spec.hVar*0.5, 0.92, 0, spec.mesh);
+        // Shadow
+        shadow(O, tx, tz, cr*1.4, cr*1.4);
+    }
+}
+
+
+// ── PARK ─────────────────────────────────────────
+function genPark(O, zone) {
+    const pos = zone.position || [0, 0];
+    const w = zone.width || 30;
+    const d = zone.depth || 30;
+    const px = pos[0], pz = pos[1];
+
+    // Grass surface
+    add(O, px, 0.02, pz, w, 0.04, d, 0.22,0.36,0.14, 0.92, 0);
+
+    // Walking path (loop around edge)
+    const pw = 1.8, pt = 0.03;
+    add(O, px, 0.04, pz-d/2+2, w-6, pt, pw, 0.52,0.48,0.42, 0.88, 0); // south path
+    add(O, px, 0.04, pz+d/2-2, w-6, pt, pw, 0.52,0.48,0.42, 0.88, 0); // north path
+    add(O, px-w/2+2, 0.04, pz, pw, pt, d-6, 0.52,0.48,0.42, 0.88, 0); // west path
+    add(O, px+w/2-2, 0.04, pz, pw, pt, d-6, 0.52,0.48,0.42, 0.88, 0); // east path
+    // Diagonal cross path
+    add(O, px, 0.04, pz, w*0.6, pt, pw, 0.52,0.48,0.42, 0.88, 0);
+
+    // Benches along paths
+    for (let i = 0; i < 4; i++) {
+        const bx = px-w/3 + i*(w*2/3/3);
+        const bz = pz-d/2+2.8;
+        add(O, bx, 0.28, bz, 1.2, 0.04, 0.40, 0.42,0.32,0.18, 0.8, 0);
+        add(O, bx, 0.46, bz+0.18, 1.2, 0.32, 0.04, 0.42,0.32,0.18, 0.8, 0);
+        add(O, bx-0.55, 0.22, bz, 0.04, 0.44, 0.35, 0.28,0.28,0.30, 0.4, 0.7);
+        add(O, bx+0.55, 0.22, bz, 0.04, 0.44, 0.35, 0.28,0.28,0.30, 0.4, 0.7);
+    }
+
+    // Fountain in center
+    if (zone.fountain !== false) {
+        add(O, px, 0.35, pz, 2.5, 0.70, 2.5, 0.60,0.58,0.55, 0.5, 0.3, 1); // basin
+        add(O, px, 0.06, pz, 3.0, 0.12, 3.0, 0.58,0.56,0.52, 0.6, 0.2); // base
+        add(O, px, 0.90, pz, 0.20, 1.10, 0.20, 0.62,0.60,0.56, 0.4, 0.3, 1); // pedestal
+        add(O, px, 1.55, pz, 0.50, 0.15, 0.50, 0.65,0.62,0.58, 0.35, 0.3); // top bowl
+        // Water surface (shiny blue)
+        add(O, px, 0.62, pz, 2.2, 0.02, 2.2, 0.15,0.30,0.50, 0.08, 0.2, 1);
+    }
+
+    // Lamp posts
+    for (const lp of [[-w/3,-d/3],[w/3,-d/3],[-w/3,d/3],[w/3,d/3]]) {
+        add(O, px+lp[0], 2.0, pz+lp[1], 0.08, 4.0, 0.08, 0.25,0.25,0.28, 0.35, 0.7, 1);
+        add(O, px+lp[0], 4.2, pz+lp[1], 0.45, 0.15, 0.30, 0.35,0.35,0.38, 0.3, 0.6);
+        add(O, px+lp[0], 4.05, pz+lp[1], 0.35, 0.06, 0.22, 1.0,0.97,0.90, 0.1, 0);
+    }
+
+    // Trees around perimeter
+    genTrees(O, { region:{ x:[px-w/2+2,px+w/2-2], z:[pz-d/2+2,pz+d/2-2] }, count: zone.trees || 8, species: zone.species || 'mixed', clearRadius: Math.min(w,d)*0.25 });
+
+    // Trash cans
+    add(O, px-w/3, 0.35, pz-d/2+3.5, 0.30, 0.70, 0.30, 0.18,0.32,0.18, 0.6, 0.2, 1);
+    add(O, px+w/3, 0.35, pz+d/2-3.5, 0.30, 0.70, 0.30, 0.18,0.32,0.18, 0.6, 0.2, 1);
+}
+
+
+// ── WATER BODY ───────────────────────────────────
+const WATER_PRESETS = {
+    ocean:    { deep:[0.02,0.12,0.22], shallow:[0.10,0.40,0.50], waveScale:1.0, waveSpeed:1.0, amplitude:0.15, foam:0.5, specPower:120 },
+    tropical: { deep:[0.01,0.18,0.28], shallow:[0.15,0.60,0.55], waveScale:0.8, waveSpeed:0.8, amplitude:0.10, foam:0.3, specPower:140 },
+    murky:    { deep:[0.08,0.10,0.06], shallow:[0.20,0.22,0.14], waveScale:0.6, waveSpeed:0.5, amplitude:0.08, foam:0.2, specPower:80 },
+    arctic:   { deep:[0.08,0.15,0.25], shallow:[0.55,0.70,0.78], waveScale:0.5, waveSpeed:0.4, amplitude:0.06, foam:0.6, specPower:160 },
+    pond:     { deep:[0.04,0.12,0.16], shallow:[0.12,0.32,0.28], waveScale:0.3, waveSpeed:0.3, amplitude:0.03, foam:0.05, specPower:100 },
+    river:    { deep:[0.05,0.14,0.18], shallow:[0.14,0.35,0.30], waveScale:0.7, waveSpeed:1.2, amplitude:0.08, foam:0.4, specPower:90 },
+};
+
+function genWaterBody(O, zone, waterBodies) {
+    const pos = zone.position || [0, 0];
+    const w = zone.width || 20;
+    const d = zone.depth || 15;
+    const px = pos[0], pz = pos[1];
+    const y = zone.y ?? -0.05;
+    const presetName = zone.preset || 'pond';
+    const preset = WATER_PRESETS[presetName] || WATER_PRESETS.pond;
+
+    // Register water body for the screen-space water pass
+    if (waterBodies) {
+        waterBodies.push({
+            y, bounds: [px-w/2, pz-d/2, px+w/2, pz+d/2],
+            deep: zone.deep || preset.deep,
+            shallow: zone.shallow || preset.shallow,
+            waveScale: zone.waveScale ?? preset.waveScale,
+            waveSpeed: zone.waveSpeed ?? preset.waveSpeed,
+            amplitude: zone.amplitude ?? preset.amplitude,
+            foam: zone.foam ?? preset.foam,
+            specPower: zone.specPower ?? preset.specPower,
+        });
+    }
+
+    // Dark bottom
+    add(O, px, y-0.15, pz, w-1, 0.02, d-1, 0.06,0.10,0.14, 0.95, 0);
+    // Shore edge — dirt/gravel ring
+    add(O, px, 0.01, pz, w+2, 0.03, d+2, 0.38,0.32,0.22, 0.90, 0);
+
+    // Rocks along edge
+    for (let i = 0; i < 12; i++) {
+        const angle = rng() * Math.PI * 2;
+        const rx = px + Math.cos(angle)*(w/2+0.5+rng()*0.5);
+        const rz = pz + Math.sin(angle)*(d/2+0.5+rng()*0.5);
+        const rs = 0.2+rng()*0.4;
+        add(O, rx, rs*0.3, rz, rs, rs*0.6, rs, 0.45+rng()*0.08,0.43+rng()*0.06,0.40+rng()*0.05, 0.85, 0.1, 2);
+    }
+}
+
+
+// ── RESIDENTIAL — houses along a street ──────────
+function genResidential(O, zone) {
+    const count = zone.count || 4;
+    const side = zone.side || 'east'; // which side of a NS street
+    const startZ = zone.startZ || -40;
+    const spacing = zone.spacing || 14;
+    const streetX = zone.streetX || 0;
+    const setback = 12; // distance from street center
+    const sign = side === 'east' ? 1 : -1;
+
+    const houseColors = [
+        [0.75,0.72,0.65],[0.62,0.58,0.52],[0.78,0.68,0.58],[0.55,0.48,0.42],
+        [0.70,0.65,0.60],[0.82,0.78,0.72],[0.58,0.52,0.48],[0.72,0.62,0.55]
+    ];
+    const roofColors = [
+        [0.25,0.22,0.20],[0.35,0.18,0.15],[0.30,0.28,0.25],[0.22,0.25,0.28]
+    ];
+
+    for (let i = 0; i < count; i++) {
+        const hx = streetX + sign * setback;
+        const hz = startZ + i * spacing;
+        const hw = 8 + rng()*4;
+        const hd = 7 + rng()*3;
+        const hh = 3.0 + rng()*0.5;
+        const wc = houseColors[Math.floor(rng()*houseColors.length)];
+        const rc = roofColors[Math.floor(rng()*roofColors.length)];
+
+        // House body
+        add(O, hx, hh/2, hz, hw, hh, hd, wc[0],wc[1],wc[2], 0.75, 0);
+        shadow(O, hx, hz, hw+2, hd+2);
+
+        // Roof (flat pitched — just a thinner box on top)
+        add(O, hx, hh+0.4, hz, hw+0.6, 0.8, hd+0.6, rc[0],rc[1],rc[2], 0.8, 0.1);
+
+        // Front door
+        add(O, hx-sign*hw/2-sign*0.02, 1.1, hz, 0.06, 2.2, 0.9, 0.30,0.22,0.15, 0.6, 0.1, 3);
+
+        // Windows
+        for (let wi = 0; wi < 3; wi++) {
+            const wz = hz - hd*0.3 + wi*(hd*0.3);
+            add(O, hx-sign*hw/2-sign*0.02, hh*0.55, wz, 0.06, 1.0, 0.8, 0.20,0.25,0.35, 0.08, 0.15);
+        }
+        // Side windows
+        add(O, hx, hh*0.55, hz-hd/2-0.02, 1.2, 1.0, 0.06, 0.20,0.25,0.35, 0.08, 0.15);
+        add(O, hx, hh*0.55, hz+hd/2+0.02, 1.2, 1.0, 0.06, 0.20,0.25,0.35, 0.08, 0.15);
+
+        // Driveway
+        add(O, hx-sign*(hw/2+2.5), 0.015, hz-1.5, 5, 0.02, 3, 0.42,0.42,0.44, 0.85, 0);
+
+        // Mailbox
+        add(O, hx-sign*(hw/2+5), 0.55, hz-2, 0.20, 1.1, 0.20, 0.15,0.15,0.18, 0.5, 0.6, 1);
+        add(O, hx-sign*(hw/2+5), 1.0, hz-2, 0.35, 0.25, 0.25, 0.15,0.25,0.50, 0.5, 0.4, 3);
+    }
+}
+
+
+// ── RETAIL STRIP ─────────────────────────────────
+function genRetailStrip(O, zone) {
+    const pos = zone.position || [0, 0];
+    const stores = zone.stores || 5;
+    const storeW = zone.storeWidth || 8;
+    const totalW = stores * storeW;
+    const d = 12, h = 4.5;
+    const px = pos[0], pz = pos[1];
+
+    // Shared roof / fascia
+    add(O, px, h+0.3, pz, totalW+2, 0.5, d+1, 0.55,0.52,0.48, 0.7, 0.2);
+
+    // Parking in front
+    add(O, px, 0.01, pz-d/2-8, totalW, 0.02, 12, 0.25,0.25,0.27, 0.85, 0);
+
+    const storeColors = [
+        [0.82,0.78,0.72],[0.70,0.65,0.58],[0.75,0.72,0.68],[0.68,0.62,0.55],
+        [0.80,0.75,0.70],[0.72,0.68,0.62]
+    ];
+
+    for (let i = 0; i < stores; i++) {
+        const sx = px - totalW/2 + storeW/2 + i*storeW;
+        const sc = storeColors[Math.floor(rng()*storeColors.length)];
+        // Store body
+        add(O, sx, h/2, pz, storeW-0.3, h, d, sc[0],sc[1],sc[2], 0.7, 0);
+        // Storefront glass
+        add(O, sx, h*0.4, pz-d/2-0.02, storeW*0.7, h*0.6, 0.06, 0.18,0.24,0.32, 0.06, 0.15);
+        // Door
+        add(O, sx, 1.1, pz-d/2-0.03, 1.0, 2.2, 0.06, 0.15,0.20,0.28, 0.08, 0.15, 3);
+        // Sign above
+        const signColors = [[0.80,0.20,0.15],[0.15,0.35,0.65],[0.20,0.55,0.25],[0.75,0.55,0.10]];
+        const sgc = signColors[Math.floor(rng()*signColors.length)];
+        add(O, sx, h-0.3, pz-d/2-0.04, storeW*0.6, 0.6, 0.06, sgc[0],sgc[1],sgc[2], 0.4, 0.1);
+        // Awning
+        add(O, sx, h*0.62, pz-d/2-1.0, storeW*0.7, 0.06, 2.0, sgc[0]*0.8,sgc[1]*0.8,sgc[2]*0.8, 0.6, 0.1);
+    }
+
+    // Parking stripes
+    for (let i = 0; i <= Math.floor(totalW/2.6); i++) {
+        const lx = px-totalW/2+1.3+i*2.6;
+        add(O, lx, 0.02, pz-d/2-8, 0.08, 0.005, 5, 0.90,0.90,0.88, 0.5, 0);
+    }
+}
+
+
+// ── GAS STATION ──────────────────────────────────
+function genGasStation(O, zone) {
+    const pos = zone.position || [0, 0];
+    const gx = pos[0], gz = pos[1];
+
+    // Lot surface
+    add(O, gx, 0.01, gz, 22, 0.02, 18, 0.28,0.28,0.30, 0.85, 0);
+
+    // Canopy — tall steel structure
+    add(O, gx, 4.8, gz, 14, 0.20, 10, 0.85,0.85,0.88, 0.3, 0.5);
+    // Canopy underside (lit)
+    add(O, gx, 4.55, gz, 13.5, 0.04, 9.5, 1.0,0.98,0.92, 0.1, 0);
+    // Support columns
+    for (const cp of [[-5,-3.5],[-5,3.5],[5,-3.5],[5,3.5]]) {
+        add(O, gx+cp[0], 2.4, gz+cp[1], 0.35, 4.8, 0.35, 0.75,0.75,0.78, 0.4, 0.5);
+    }
+
+    // Pump islands (3)
+    for (let i = -1; i <= 1; i++) {
+        const ix = gx + i*4.5;
+        // Island base
+        add(O, ix, 0.12, gz, 0.8, 0.24, 3.5, 0.60,0.58,0.55, 0.8, 0);
+        // Pump bodies (2 per island)
+        for (const pz of [-1, 1]) {
+            add(O, ix, 0.85, gz+pz, 0.50, 1.3, 0.35, 0.72,0.70,0.66, 0.5, 0.3, 3);
+            add(O, ix, 1.45, gz+pz, 0.42, 0.25, 0.30, 0.18,0.18,0.20, 0.4, 0.4); // screen
+            // Hose
+            add(O, ix+0.30, 0.8, gz+pz, 0.06, 0.25, 0.06, 0.12,0.12,0.12, 0.7, 0.1, 1);
+        }
+        // Bollards
+        add(O, ix-0.6, 0.35, gz-2.2, 0.12, 0.70, 0.12, 0.90,0.80,0.08, 0.5, 0.5, 1);
+        add(O, ix+0.6, 0.35, gz+2.2, 0.12, 0.70, 0.12, 0.90,0.80,0.08, 0.5, 0.5, 1);
+    }
+
+    // Convenience store building
+    add(O, gx+0.5, 2.0, gz+7.5, 10, 4.0, 5, 0.78,0.75,0.70, 0.7, 0.1);
+    // Store glass front
+    add(O, gx+0.5, 1.8, gz+4.98, 8, 2.8, 0.06, 0.18,0.24,0.32, 0.06, 0.15);
+    // Store door
+    add(O, gx+0.5, 1.1, gz+4.96, 1.2, 2.2, 0.06, 0.15,0.20,0.28, 0.08, 0.15, 3);
+    // Brand sign on canopy
+    add(O, gx, 5.05, gz-5.1, 6, 1.0, 0.10, 0.85,0.15,0.12, 0.3, 0.1);
+}
+
+
+// ── LAMP POSTS ───────────────────────────────────
+function genLampPosts(O, zone) {
+    const path = zone.path || [[0,-50],[0,50]];
+    const spacing = zone.spacing || 15;
+    const side = zone.side || 'both'; // 'left','right','both'
+    const h = zone.height || 6;
+    const offset = zone.offset || 8; // distance from path center
+
+    for (let i = 0; i < path.length-1; i++) {
+        const a = path[i], b = path[i+1];
+        const dx = b[0]-a[0], dz = b[1]-a[1];
+        const len = Math.sqrt(dx*dx+dz*dz);
+        const nx = -dz/len, nz = dx/len; // perpendicular
+        const steps = Math.floor(len/spacing);
+        for (let s = 0; s <= steps; s++) {
+            const t = s / Math.max(steps,1);
+            const lx = a[0]+dx*t, lz = a[1]+dz*t;
+            const sides = side==='both' ? [-1,1] : side==='left' ? [-1] : [1];
+            for (const dir of sides) {
+                const px = lx + nx*offset*dir, pz2 = lz + nz*offset*dir;
+                add(O, px, h/2, pz2, 0.10, h, 0.10, 0.30,0.30,0.32, 0.4, 0.7, 1);
+                add(O, px, h+0.15, pz2, 0.6, 0.12, 0.35, 0.35,0.35,0.38, 0.35, 0.6);
+                add(O, px, h+0.02, pz2, 0.45, 0.06, 0.25, 1.0,0.97,0.90, 0.1, 0);
+            }
+        }
+    }
+}
+
+
+// ── SIGNAGE ──────────────────────────────────────
+function genSignage(O, zone) {
+    const signs = zone.signs || [];
+    for (const s of signs) {
+        const sx = s.position[0], sz = s.position[1];
+        const t = s.type || 'stop';
+
+        if (t === 'stop') {
+            add(O, sx, 1.6, sz, 0.06, 3.2, 0.06, 0.50,0.50,0.52, 0.3, 0.8, 1);
+            add(O, sx, 3.3, sz, 0.55, 0.55, 0.06, 0.82,0.12,0.10, 0.4, 0.1, 3);
+        } else if (t === 'yield') {
+            add(O, sx, 1.6, sz, 0.06, 3.2, 0.06, 0.50,0.50,0.52, 0.3, 0.8, 1);
+            add(O, sx, 3.3, sz, 0.55, 0.55, 0.06, 0.90,0.80,0.08, 0.4, 0.1);
+        } else if (t === 'speed') {
+            add(O, sx, 1.6, sz, 0.06, 3.2, 0.06, 0.50,0.50,0.52, 0.3, 0.8, 1);
+            add(O, sx, 3.3, sz, 0.50, 0.60, 0.06, 0.88,0.88,0.86, 0.3, 0.1);
+        } else if (t === 'street') {
+            add(O, sx, 1.6, sz, 0.06, 3.2, 0.06, 0.50,0.50,0.52, 0.3, 0.8, 1);
+            add(O, sx, 3.4, sz, 0.9, 0.22, 0.06, 0.15,0.40,0.18, 0.4, 0.1);
+            add(O, sx, 3.15, sz, 0.06, 0.22, 0.9, 0.15,0.40,0.18, 0.4, 0.1);
+        } else if (t === 'billboard') {
+            // Two poles + large face
+            add(O, sx-1.5, 3.5, sz, 0.15, 7.0, 0.15, 0.45,0.45,0.48, 0.35, 0.7, 1);
+            add(O, sx+1.5, 3.5, sz, 0.15, 7.0, 0.15, 0.45,0.45,0.48, 0.35, 0.7, 1);
+            const bc = [0.20+rng()*0.6, 0.15+rng()*0.5, 0.10+rng()*0.4];
+            add(O, sx, 6.5, sz, 6.0, 3.0, 0.20, bc[0],bc[1],bc[2], 0.4, 0.1);
+        }
+    }
+}
+
+
+// ── PLAYGROUND ───────────────────────────────────
+function genPlayground(O, zone) {
+    const pos = zone.position || [0, 0];
+    const px = pos[0], pz = pos[1];
+
+    // Safety surface (rubber — dark, slightly soft)
+    add(O, px, 0.03, pz, 12, 0.06, 10, 0.18,0.15,0.12, 0.88, 0.05);
+
+    // Swing set — A-frame + bar + seats
+    add(O, px-3, 1.5, pz-2, 0.08, 3.0, 0.08, 0.82,0.18,0.12, 0.4, 0.6, 1); // leg L
+    add(O, px-3, 1.5, pz+2, 0.08, 3.0, 0.08, 0.82,0.18,0.12, 0.4, 0.6, 1); // leg R
+    add(O, px+3, 1.5, pz-2, 0.08, 3.0, 0.08, 0.82,0.18,0.12, 0.4, 0.6, 1);
+    add(O, px+3, 1.5, pz+2, 0.08, 3.0, 0.08, 0.82,0.18,0.12, 0.4, 0.6, 1);
+    add(O, px, 3.0, pz, 6.2, 0.08, 0.08, 0.82,0.18,0.12, 0.35, 0.7, 1); // top bar
+    // Seats (3)
+    for (let si = -1; si <= 1; si++) {
+        add(O, px+si*2, 2.0, pz, 0.02, 2.0, 0.02, 0.25,0.25,0.28, 0.4, 0.7, 1); // chain
+        add(O, px+si*2, 0.45, pz, 0.40, 0.04, 0.20, 0.12,0.12,0.14, 0.6, 0.2);    // seat
+    }
+
+    // Slide
+    add(O, px+4, 1.5, pz-3, 0.12, 3.0, 0.12, 0.18,0.42,0.68, 0.4, 0.5, 1); // post
+    add(O, px+4, 3.1, pz-3, 1.4, 0.08, 1.4, 0.18,0.42,0.68, 0.5, 0.4);     // platform
+    add(O, px+4, 1.5, pz-1.5, 0.50, 0.04, 3.2, 0.55,0.55,0.58, 0.15, 0.8); // slide chute
+
+    // Climbing structure (simple cube frame)
+    const cf = [[-1,-1],[1,-1],[1,1],[-1,1]];
+    for (const c of cf) {
+        add(O, px-4+c[0]*1, 1.0, pz+2+c[1]*1, 0.06, 2.0, 0.06, 0.88,0.70,0.08, 0.4, 0.6, 1);
+    }
+    add(O, px-4, 2.0, pz+2, 2.1, 0.06, 2.1, 0.88,0.70,0.08, 0.4, 0.6); // top frame
+}
+
+
+// ── CLOUDS ──────────────────────────────────────
+function genClouds(O, zone, space) {
+    const w = zone.width || space?.width || 200;
+    const d = zone.depth || space?.depth || 200;
+    const hw = w/2, hd = d/2;
+    const count = zone.count || 20;
+    const minY = zone.minHeight || 35;
+    const maxY = zone.maxHeight || 65;
+    const mood = zone.mood || 'outdoor';
+
+    // Mood-based brightness
+    const bright = mood === 'moody' ? 0.65 + rng()*0.10 : 0.88 + rng()*0.10;
+
+    for (let g = 0; g < count; g++) {
+        const cx = -hw + rng() * w;
+        const cz = -hd + rng() * d;
+        const cy = minY + rng() * (maxY - minY);
+        const gp = rng() * Math.PI * 2;
+        const bW = 10 + rng() * 14, bH = 2 + rng() * 2.5, bD = 7 + rng() * 10;
+        const br = bright * (0.95 + rng() * 0.05);
+        // Core sphere
+        O.push({ x:cx, y:cy, z:cz, sx:bW*0.9, sy:bH*0.9, sz:bD*0.9, r:br, g:br, b:br*0.97, rough:0.95, metal:0, mesh:2, cloudPhase:gp });
+        // 2-3 bump spheres
+        const nB = 2 + Math.floor(rng() * 2);
+        for (let p = 0; p < nB; p++) {
+            const ox = (rng()-0.5) * bW * 0.35;
+            const oy = (rng()-0.3) * bH * 0.25;
+            const oz = (rng()-0.5) * bD * 0.3;
+            O.push({ x:cx+ox, y:cy+oy, z:cz+oz, sx:bW*(0.6+rng()*0.25), sy:bH*(0.6+rng()*0.3), sz:bD*(0.55+rng()*0.25),
+                r:br, g:br, b:br*0.97, rough:0.95, metal:0, mesh:2, cloudPhase:gp+rng()*0.3 });
+        }
+    }
+}
+
+
+// ── ROCKS / BOULDERS ────────────────────────────
+function genRocks(O, zone) {
+    const region = zone.region || { x:[-60,60], z:[-60,60] };
+    const count = zone.count || 20;
+    const clearRadius = zone.clearRadius || 12;
+
+    for (let i = 0; i < count; i++) {
+        const rx = region.x[0] + rng() * (region.x[1] - region.x[0]);
+        const rz = region.z[0] + rng() * (region.z[1] - region.z[0]);
+        if (Math.abs(rx) < clearRadius && Math.abs(rz) < clearRadius) continue;
+        const rs = 0.3 + rng() * 1.2;
+        add(O, rx, rs*0.3, rz, rs, rs*0.6, rs*(0.7+rng()*0.3),
+            0.42+rng()*0.10, 0.40+rng()*0.08, 0.38+rng()*0.06, 0.85, 0.1, 2);
+    }
+}
+
+
+// ── UTILITY POLES ───────────────────────────────
+function genUtilityPoles(O, zone) {
+    const path = zone.path || [[0,-60],[0,60]];
+    const spacing = zone.spacing || 25;
+    const side = zone.side || 'right';
+    const offset = zone.offset || 9;
+    const h = zone.height || 9;
+
+    for (let i = 0; i < path.length-1; i++) {
+        const a = path[i], b = path[i+1];
+        const dx = b[0]-a[0], dz = b[1]-a[1];
+        const len = Math.sqrt(dx*dx+dz*dz);
+        const nx = -dz/len, nz = dx/len;
+        const steps = Math.floor(len/spacing);
+        for (let s = 0; s <= steps; s++) {
+            const t = s / Math.max(steps,1);
+            const px = a[0]+dx*t, pz = a[1]+dz*t;
+            const sign = side === 'both' ? [-1,1] : side === 'left' ? [-1] : [1];
+            for (const dir of sign) {
+                const ux = px + nx*offset*dir, uz = pz + nz*offset*dir;
+                // Pole
+                add(O, ux, h/2, uz, 0.15, h, 0.15, 0.35,0.30,0.22, 0.85, 0, 1);
+                // Crossbar
+                add(O, ux, h-0.3, uz, 2.5, 0.12, 0.12, 0.32,0.28,0.20, 0.85, 0);
+                // Insulators
+                for (const ix of [-1,0,1]) {
+                    add(O, ux+ix*0.9, h-0.1, uz, 0.08, 0.18, 0.08, 0.45,0.50,0.52, 0.4, 0.3, 1);
+                }
+            }
+        }
+    }
+}
+
+
+// ── DUMPSTERS ───────────────────────────────────
+function genDumpsters(O, zone) {
+    const positions = zone.positions || [[15,10],[-15,10]];
+    const colors = [[0.15,0.35,0.18],[0.22,0.25,0.55],[0.55,0.18,0.15],[0.35,0.32,0.30]];
+
+    for (const pos of positions) {
+        const dx = pos[0], dz = pos[1];
+        const c = colors[Math.floor(rng()*colors.length)];
+        // Body
+        add(O, dx, 0.65, dz, 1.8, 1.3, 1.5, c[0],c[1],c[2], 0.6, 0.4);
+        // Lid
+        add(O, dx, 1.35, dz, 1.85, 0.08, 1.55, c[0]*0.9,c[1]*0.9,c[2]*0.9, 0.5, 0.5);
+        // Wheels
+        add(O, dx-0.75, 0.12, dz-0.55, 0.12, 0.24, 0.24, 0.10,0.10,0.10, 0.7, 0.1, 1);
+        add(O, dx-0.75, 0.12, dz+0.55, 0.12, 0.24, 0.24, 0.10,0.10,0.10, 0.7, 0.1, 1);
+        add(O, dx+0.75, 0.12, dz-0.55, 0.12, 0.24, 0.24, 0.10,0.10,0.10, 0.7, 0.1, 1);
+        add(O, dx+0.75, 0.12, dz+0.55, 0.12, 0.24, 0.24, 0.10,0.10,0.10, 0.7, 0.1, 1);
+        shadow(O, dx, dz, 2.0, 1.8);
+    }
+}
+
+
+// ── FIRE HYDRANTS ───────────────────────────────
+function genHydrants(O, zone) {
+    const positions = zone.positions || [[-9,20],[9,-15]];
+    for (const pos of positions) {
+        const hx = pos[0], hz = pos[1];
+        // Body
+        add(O, hx, 0.28, hz, 0.22, 0.56, 0.22, 0.82,0.18,0.12, 0.5, 0.4, 1);
+        // Cap
+        add(O, hx, 0.60, hz, 0.28, 0.10, 0.28, 0.75,0.15,0.10, 0.45, 0.5, 1);
+        // Nozzles
+        add(O, hx-0.16, 0.38, hz, 0.10, 0.08, 0.08, 0.78,0.16,0.11, 0.5, 0.4, 1);
+        add(O, hx+0.16, 0.38, hz, 0.10, 0.08, 0.08, 0.78,0.16,0.11, 0.5, 0.4, 1);
+        // Bonnet top
+        add(O, hx, 0.68, hz, 0.14, 0.08, 0.14, 0.70,0.14,0.10, 0.4, 0.5, 1);
+    }
+}
+
+
+const ATMOS_PRESETS = {
+    industrial: {
+        fog: [0.00004, 6.0, 9.5, 0.00002],
+        fogBase: [0.16, 0.15, 0.14], fogCeil: [0.22, 0.19, 0.14],
+        light: [1.0, 0.95, 0.85, 2.0], lightGrid: [9.7, 14.0, 10.0, 12.0],
+        post: [1.08, 0.35, 0.035, 0.012],
+        gradeShadow: [-0.010, -0.005, 0.020, 0.08],
+        gradeMid: [0.018, 0.008, -0.012, 0.010],
+        clear: [0.14, 0.13, 0.15],
+    },
+    military: {
+        fog: [0.00006, 4.0, 8.0, 0.00003],
+        fogBase: [0.12, 0.13, 0.15], fogCeil: [0.15, 0.16, 0.18],
+        light: [0.90, 0.92, 1.0, 2.2], lightGrid: [7.5, 12.0, 10.0, 10.0],
+        post: [1.14, 0.40, 0.040, 0.015],
+        gradeShadow: [-0.005, -0.008, 0.025, 0.05],
+        gradeMid: [0.005, 0.002, -0.004, 0.008],
+        clear: [0.10, 0.11, 0.14],
+    },
+    clean: {
+        fog: [0.00001, 3.0, 5.0, 0.000005],
+        fogBase: [0.22, 0.22, 0.23], fogCeil: [0.25, 0.25, 0.26],
+        light: [1.0, 1.0, 1.0, 2.5], lightGrid: [4.2, 10.0, 6.0, 6.0],
+        post: [1.04, 0.20, 0.015, 0.008],
+        gradeShadow: [-0.003, -0.002, 0.005, 0.03],
+        gradeMid: [0.005, 0.003, -0.002, 0.003],
+        clear: [0.20, 0.20, 0.22],
+    },
+    moody: {
+        fog: [0.00012, 3.0, 8.0, 0.00006],
+        fogBase: [0.10, 0.08, 0.07], fogCeil: [0.14, 0.10, 0.08],
+        light: [1.0, 0.82, 0.60, 1.6], lightGrid: [9.0, 16.0, 12.0, 14.0],
+        post: [1.18, 0.50, 0.050, 0.018],
+        gradeShadow: [-0.020, -0.010, 0.030, 0.12],
+        gradeMid: [0.025, 0.010, -0.020, 0.015],
+        clear: [0.08, 0.06, 0.06],
+    },
+    outdoor: {
+        fog: [0.000008, 0.0, 50.0, 0.000004],
+        fogBase: [0.55, 0.62, 0.72], fogCeil: [0.60, 0.68, 0.80],
+        light: [1.0, 0.98, 0.92, 1.4], lightGrid: [12.0, 20.0, 20.0, 20.0],
+        post: [1.06, 0.25, 0.018, 0.008],
+        gradeShadow: [-0.005, -0.002, 0.015, 0.05],
+        gradeMid: [0.010, 0.005, -0.008, 0.004],
+        clear: [0.50, 0.60, 0.75],
+    },
+    daylight: {
+        fog: [0.000012, 0.0, 30.0, 0.000006],
+        fogBase: [0.48, 0.55, 0.65], fogCeil: [0.52, 0.60, 0.72],
+        light: [1.0, 0.97, 0.90, 1.8], lightGrid: [10.0, 18.0, 15.0, 15.0],
+        post: [1.05, 0.22, 0.015, 0.006],
+        gradeShadow: [-0.003, -0.001, 0.008, 0.04],
+        gradeMid: [0.008, 0.004, -0.006, 0.003],
+        clear: [0.55, 0.65, 0.80],
+    },
+};
+
+function resolveAtmosphere(json, space) {
+    const mood = json.atmosphere?.mood || 'industrial';
+    const preset = ATMOS_PRESETS[mood] || ATMOS_PRESETS.industrial;
+    // Allow per-field overrides from JSON
+    const atm = json.atmosphere || {};
+    const over = (key, def) => atm[key] ?? def;
+    return {
+        fog: over('fog', preset.fog),
+        fogBase: preset.fogBase, fogCeil: preset.fogCeil,
+        light: preset.light, lightGrid: preset.lightGrid,
+        post: preset.post,
+        gradeShadow: preset.gradeShadow,
+        gradeMid: preset.gradeMid,
+        clear: preset.clear,
+    };
+}
+
+
+// ══════════════════════════════════════════════════
+// SCENE COMPILER — runs all generators
+// ══════════════════════════════════════════════════
+function compileScene(json) {
+    resetRng(42);
+    const objects = [];
+    const space = json.space || { width:40, depth:40, height:6 };
+    const meta = json.meta || {};
+
+    // Defaults from type
+    if (meta.type === 'warehouse' || meta.type === 'factory' || meta.type === 'retail') {
+        if (!space.floor) space.floor = 'sealed-concrete';
+        if (!space.walls) space.walls = 'tilt-up-concrete';
+        if (!space.ceiling) space.ceiling = 't-bar-panel';
+        if (space.age === undefined) space.age = 10;
+    }
+
+    // 1. Envelope (skip for exterior scenes)
+    if (meta.type !== 'exterior') {
+        genEnvelope(objects, space, meta);
+    }
+
+    // 2. Zones
+    let rackInfo = null;
+    const doors = [];
+    const waterBodies = [];
+    for (const zone of (json.zones || [])) {
+        switch (zone.type) {
+            case 'racking':      rackInfo = genRacking(objects, zone, space); break;
+            case 'dock':         genDock(objects, zone, space); break;
+            case 'room':         genRoom(objects, zone, space, doors); break;
+            case 'corridor':     genCorridor(objects, zone, space); break;
+            case 'staging':      genStaging(objects, zone, space); break;
+            case 'safety':       genSafety(objects, zone, space); break;
+            case 'overhead':     genOverhead(objects, zone, space); break;
+            case 'terrain':      genTerrain(objects, zone, space); break;
+            case 'street':       genStreet(objects, zone); break;
+            case 'building':     genBuilding(objects, zone); break;
+            case 'parking':      genParking(objects, zone); break;
+            case 'fence':        genFence(objects, zone); break;
+            case 'furniture':    genFurnitureLayout(objects, zone, space); break;
+            case 'intersection': genIntersection(objects, zone); break;
+            case 'trees':        genTrees(objects, zone); break;
+            case 'park':         genPark(objects, zone); break;
+            case 'water':        genWaterBody(objects, zone, waterBodies); break;
+            case 'residential':  genResidential(objects, zone); break;
+            case 'retail-strip': genRetailStrip(objects, zone); break;
+            case 'gas-station':  genGasStation(objects, zone); break;
+            case 'lamp-posts':   genLampPosts(objects, zone); break;
+            case 'signage':      genSignage(objects, zone); break;
+            case 'playground':   genPlayground(objects, zone); break;
+            case 'clouds':       genClouds(objects, zone, space); break;
+            case 'rocks':        genRocks(objects, zone); break;
+            case 'utility-poles':genUtilityPoles(objects, zone); break;
+            case 'dumpsters':    genDumpsters(objects, zone); break;
+            case 'hydrants':     genHydrants(objects, zone); break;
+            case 'custom':       if (zone.objects) zone.objects.forEach(o => {
+                add(objects, o.x,o.y,o.z, o.sx,o.sy,o.sz, ...o.color, o.roughness??0.7, o.metallic??0, ({box:0,cylinder:1,sphere:2,bevel:3})[o.mesh]??0);
+            }); break;
+        }
+    }
+
+    // 3. Equipment
+    let conveyorData = null;
+    for (const eq of (json.equipment || [])) {
+        switch (eq.type) {
+            case 'forklift':    genForklift(objects, eq); break;
+            case 'pallet-jack': genPalletJack(objects, eq); break;
+            case 'conveyor':    conveyorData = genConveyor(objects, [], eq); break;
+            case 'car': case 'sedan': case 'truck': case 'pickup': case 'bus':
+                genVehicle(objects, eq); break;
+        }
+    }
+
+    // 4. Agents
+    const agents = genAgents(json.people || [], rackInfo, space);
+
+    // 5. Camera
+    let cam;
+    const camDef = json.camera || {};
+    if (Array.isArray(camDef.start)) {
+        cam = { px: camDef.start[0], py: camDef.start[1], pz: camDef.start[2] };
+    } else if (camDef.start === 'entrance') {
+        cam = { px: 0, py: camDef.height || 1.7, pz: space.depth/2 - 2 };
+    } else if (camDef.start === 'center') {
+        cam = { px: 0, py: camDef.height || 1.7, pz: 0 };
+    } else {
+        cam = { px: 0, py: 1.7, pz: space.depth/2 - 2 };
+    }
+    cam.yaw = camDef.yaw ?? Math.PI;
+    cam.pitch = camDef.pitch ?? 0;
+    cam.speed = camDef.speed ?? 5;
+    cam.fov = camDef.fov ?? 1.2;
+    cam.near = camDef.near ?? 0.1;
+    cam.far = camDef.far ?? 150;
+    cam.bounds = camDef.bounds ?? { min:[-space.width/2+1,1.7,-space.depth/2+1], max:[space.width/2-1,1.7,space.depth/2-1] };
+
+    // 6. Lighting
+    const lt = json.lighting || {};
+    const lighting = {
+        sunDir: lt?.sun?.direction || [0.3, 0.95, 0.15],
+        ambient: lt?.ambient?.ground || [0.18, 0.17, 0.20],
+    };
+
+    // 7. Atmosphere
+    const atmos = resolveAtmosphere(json, space);
+
+    console.log(`✅ Scene compiled: ${objects.length} objects, ${agents.length} agents, ${doors.length} doors, ${waterBodies.length} water bodies, mood: ${json.atmosphere?.mood || 'industrial'}`);
+    return { objects, agents, doors, waterBodies, cam, lighting, atmos, conveyorData, space, meta, json };
+}
+
+
+// ══════════════════════════════════════════════════
+// WGSL SHADER — PBR + materials + post-processing
+// (from Walmart DC v27, adapted for declarative)
+// ══════════════════════════════════════════════════
+const INST_WGSL = `
+struct Scene { vp:mat4x4f, camPos:vec4f, sunDir:vec4f, screen:vec4f,
+  fogParams:vec4f, fogBase:vec4f, fogCeil:vec4f,
+  lightParams:vec4f, lightGrid:vec4f,
+  postParams:vec4f, gradeShadow:vec4f, gradeMid:vec4f };
+struct Inst { model:mat4x4f, cr:vec4f, mp:vec4f };
+struct InstBuf { d:array<Inst> };
+
+@group(0)@binding(0) var<uniform> scene:Scene;
+@group(0)@binding(1) var<storage,read> insts:InstBuf;
+
+struct O{@builtin(position) pos:vec4f, @location(0) n:vec3f, @location(1) wp:vec3f,
+  @location(2) @interpolate(flat) cr:vec4f, @location(3) @interpolate(flat) mp:vec4f,
+  @location(4) lp:vec3f};
+
+@vertex fn vs(@location(0) p:vec3f, @location(1) n:vec3f, @builtin(instance_index) iid:u32)->O{
+    let inst=insts.d[iid]; var o:O;
+    var ap=p; var an=n;
+    // ── Cloud drift (GPU trick) — mp.y > 1.5 ──
+    if(inst.mp.y > 1.5){
+      let phase=inst.cr.w; let time=scene.screen.z;
+      ap.x += sin(time*0.06+phase)*0.08 + sin(time*0.02+phase*2.3)*0.04;
+      ap.z += cos(time*0.04+phase*1.3)*0.06 + cos(time*0.015+phase*0.7)*0.03;
+      ap.y += sin(time*0.08+phase*0.9)*0.01;
+    }
+    // ── Vertex-shader walk animation (GPU trick) ──
+    else if(inst.mp.y > 0.5){
+      let phase=inst.cr.w;
+      let amp=inst.mp.z * 0.12;
+      let y=p.y;
+      let isIdle=step(0.5, inst.mp.w);
+      let walkAmp=amp*(1.0-isIdle);
+      let idleAmp=amp*isIdle*0.15;
+      // Legs: below hip (y<0.84), left (x<-0.04), right (x>0.04)
+      if(y<0.82 && y>0.02){
+        let swing=(0.82-y)/0.80;
+        if(p.x < -0.04){ ap.z += sin(phase)*swing*walkAmp + sin(phase*0.4)*swing*idleAmp; }
+        else if(p.x > 0.04){ ap.z -= sin(phase)*swing*walkAmp - sin(phase*0.4)*swing*idleAmp; }
+      }
+      // Arms: above hip (y>0.84), |x|>0.14
+      if(y>0.70 && y<1.40){
+        let armSwing=(1.40-y)/0.70;
+        if(p.x < -0.14){ ap.z -= sin(phase)*armSwing*walkAmp*0.6; }
+        else if(p.x > 0.14){ ap.z += sin(phase)*armSwing*walkAmp*0.6; }
+      }
+      // Torso bob
+      ap.y += abs(sin(phase))*walkAmp*0.08 + sin(phase*1.2)*idleAmp*0.3;
+      // Head subtle sway
+      if(y>1.50){ ap.x += sin(phase*0.3)*0.003*amp; }
+    }
+    o.lp=ap;
+    let wp4=inst.model*vec4f(ap,1);
+    o.pos=scene.vp*wp4; o.n=normalize((inst.model*vec4f(an,0)).xyz); o.wp=wp4.xyz;
+    o.cr=inst.cr; o.mp=inst.mp; return o;
+}
+
+fn hash21(p:vec2f)->f32{var p3=fract(vec3f(p.xyx)*0.1031);p3+=dot(p3,p3.yzx+33.33);return fract((p3.x+p3.y)*p3.z);}
+fn hash31(p:vec3f)->f32{var p3=fract(p*vec3f(0.1031,0.1030,0.0973));p3+=dot(p3,p3.zyx+31.32);return fract((p3.x+p3.y)*p3.z);}
+fn noise2d(p:vec2f)->f32{let i=floor(p);let f=fract(p);let u2=f*f*(3.0-2.0*f);
+    return mix(mix(hash21(i),hash21(i+vec2f(1,0)),u2.x),mix(hash21(i+vec2f(0,1)),hash21(i+vec2f(1,1)),u2.x),u2.y);}
+
+fn pointLight(wp:vec3f,N:vec3f,V:vec3f,lPos:vec3f,lCol:vec3f,lInt:f32,lRad:f32,rough:f32)->vec3f{
+    let Lv=lPos-wp;let dist=length(Lv);if(dist>lRad){return vec3f(0);}let L=Lv/dist;
+    let att=clamp(1.0-(dist*dist)/(lRad*lRad),0.0,1.0);let att2=att*att;
+    let NdL=max(dot(N,L),0.0);let H=normalize(V+L);
+    let spec=pow(max(dot(N,H),0.0),mix(64.0,4.0,rough*rough))*mix(0.3,0.02,rough)*NdL;
+    return lCol*lInt*att2*(NdL*0.7+spec);}
+
+@fragment fn fs(v:O, @builtin(front_facing) ff:bool)->@location(0) vec4f{
+    var N=normalize(v.n); if(!ff){N=-N;}
+    let V=normalize(scene.camPos.xyz-v.wp);
+    let L=normalize(scene.sunDir.xyz);
+    var albedo=v.cr.rgb; var rough=v.cr.a; let metal=v.mp.x; let wp=v.wp;
+
+    // ── Cloud branch — simplified shading, mp.y > 1.5 ──
+    if(v.mp.y > 1.5){
+      let base=v.cr.rgb;
+      let NdL=max(dot(N,L),0.0);
+      let hemi=mix(0.78,0.98,N.y*0.5+0.5);
+      let bounce=max(-N.y,0.0)*0.08;
+      var c=base*(hemi+bounce+NdL*0.25);
+      // Subsurface backscatter
+      let sss=pow(max(dot(-V,L),0.0),3.0)*0.15;
+      c+=base*sss*vec3f(1.0,0.95,0.85);
+      // Fog
+      let dist=length(wp-scene.camPos.xyz);
+      let fogDensity=scene.fogParams.x+smoothstep(scene.fogParams.y,scene.fogParams.z,wp.y)*scene.fogParams.w;
+      let fogColor=mix(scene.fogBase.rgb,scene.fogCeil.rgb,smoothstep(scene.fogParams.y-1.0,scene.fogParams.z,wp.y));
+      c=mix(c,fogColor,clamp(1.0-exp(-dist*dist*fogDensity*0.5),0.0,0.40));
+      c=pow(max(c,vec3f(0)),vec3f(1.0/2.2));
+      return vec4f(clamp(c,vec3f(0),vec3f(1)),1);
+    }
+
+    // ── Humanoid branch — per-character clothing, face, toon shading ──
+    if(v.mp.y > 0.5){
+      let lp=v.lp;
+      let y=lp.y; let absX=abs(lp.x);
+      let skinCol=v.cr.rgb;
+      let oi=u32(v.mp.x);
+
+      // ── Outfit lookup — environment-specific ──
+      var shirt:vec3f; var shirtAlt:vec3f; var pants:vec3f; var shoes:vec3f; var hairCol:vec3f;
+      var hasVest:f32=0.0; var hasCollar:f32=0.0; var hasPocket:f32=0.0;
+      switch oi {
+        case 0u: { shirt=vec3f(0.40,0.40,0.42); shirtAlt=vec3f(0.90,0.45,0.05); pants=vec3f(0.22,0.22,0.28); shoes=vec3f(0.14,0.12,0.10); hairCol=vec3f(0.15,0.10,0.06); hasVest=1.0; }
+        case 1u: { shirt=vec3f(0.55,0.65,0.78); shirtAlt=vec3f(0.48,0.58,0.72); pants=vec3f(0.15,0.15,0.18); shoes=vec3f(0.12,0.10,0.08); hairCol=vec3f(0.08,0.06,0.04); hasCollar=1.0; hasPocket=1.0; }
+        case 2u: { shirt=vec3f(0.55,0.12,0.10); shirtAlt=vec3f(0.18,0.16,0.14); pants=vec3f(0.22,0.28,0.38); shoes=vec3f(0.30,0.22,0.12); hairCol=vec3f(0.55,0.28,0.10); hasCollar=1.0; }
+        case 3u: { shirt=vec3f(0.12,0.42,0.45); shirtAlt=vec3f(0.12,0.42,0.45); pants=vec3f(0.11,0.38,0.40); shoes=vec3f(0.85,0.85,0.85); hairCol=vec3f(0.65,0.58,0.35); hasPocket=1.0; }
+        default: { shirt=vec3f(0.22,0.35,0.52); shirtAlt=vec3f(0.22,0.35,0.52); pants=vec3f(0.42,0.38,0.28); shoes=vec3f(0.50,0.42,0.30); hairCol=vec3f(0.20,0.15,0.10); }
+      }
+
+      // ── Body zone with clothing ──
+      var bodyCol:vec3f;
+      if(y > 1.78){ bodyCol=hairCol; }
+      else if(y > 1.50){
+        let backHair = (1.0 - smoothstep(-0.02, 0.02, lp.z)) * smoothstep(1.52, 1.56, y);
+        bodyCol = mix(skinCol, hairCol, backHair);
+      }
+      else if(y > 1.44){
+        let collarBase = smoothstep(1.48, 1.45, y);
+        bodyCol = mix(skinCol, shirt * 0.88, collarBase * max(hasCollar, 0.3));
+      }
+      else if(y > 0.80){
+        let isForearm = smoothstep(0.14, 0.17, absX) * smoothstep(1.05, 0.92, y);
+        let isHand = smoothstep(0.14, 0.16, absX) * smoothstep(0.78, 0.72, y);
+        let skinAmount = max(isForearm, isHand);
+        bodyCol = mix(shirt, skinCol, skinAmount);
+        if(hasVest > 0.5){
+          let inVest = (1.0-smoothstep(0.10,0.14,absX)) * smoothstep(0.85,0.88,y) * smoothstep(1.44,1.40,y);
+          bodyCol = mix(bodyCol, shirtAlt, inVest);
+          let s1 = smoothstep(0.008,0.003, abs(y-1.15)) * inVest;
+          let s2 = smoothstep(0.008,0.003, abs(y-1.08)) * inVest;
+          bodyCol = mix(bodyCol, vec3f(0.85,0.82,0.30), (s1+s2)*0.7);
+          let vs2 = smoothstep(0.008,0.003, abs(absX-0.05)) * inVest * step(0.02, lp.z);
+          bodyCol = mix(bodyCol, vec3f(0.85,0.82,0.30), vs2*0.6);
+        }
+        if(hasCollar > 0.5 && hasVest < 0.5){
+          let ph = smoothstep(0.008, 0.003, abs(fract(y*12.0)-0.5));
+          let pv = smoothstep(0.008, 0.003, abs(fract(absX*18.0)-0.5));
+          bodyCol = mix(bodyCol, shirtAlt, max(ph,pv) * 0.45 * (1.0-skinAmount));
+        }
+      }
+      else if(y > 0.06){
+        bodyCol = pants;
+        let belt2 = smoothstep(0.82,0.79,y) * smoothstep(0.76,0.78,y);
+        bodyCol = mix(bodyCol, pants*0.55, belt2);
+      }
+      else{ bodyCol=shoes; }
+
+      // ── Face features — front only ──
+      let isFront = smoothstep(0.02, 0.06, lp.z);
+
+      // Beard
+      let beardZone = smoothstep(0.06, 0.08, lp.z) * smoothstep(1.46, 1.49, y) * smoothstep(1.62, 1.59, y);
+      let mustacheZone = smoothstep(0.09, 0.10, lp.z) * smoothstep(1.585, 1.595, y) * smoothstep(1.625, 1.615, y) * smoothstep(0.045, 0.035, absX);
+      bodyCol = mix(bodyCol, hairCol * 0.80, max(beardZone, mustacheZone));
+
+      // Eyes
+      let eyeY = y - 1.66;
+      let eyeDist = length(vec2f(absX - 0.038, eyeY));
+      let eyeMask = smoothstep(0.014, 0.007, eyeDist) * isFront;
+      bodyCol = mix(bodyCol, vec3f(0.06, 0.04, 0.03), eyeMask);
+
+      // Mouth
+      let mouthY = y - 1.575;
+      let mouthMask = smoothstep(0.006, 0.002, abs(mouthY)) * smoothstep(0.04, 0.015, absX) * isFront;
+      bodyCol = mix(bodyCol, skinCol * 0.50, mouthMask * 0.5);
+
+      // ── Toon shading + point lights (preserved from original) ──
+      let NdL=max(dot(N,L),0.0); let q=ceil(NdL*3.0)/3.0;
+      let gx=round(wp.x/scene.lightGrid.z)*scene.lightGrid.z; let gz=round(wp.z/scene.lightGrid.w)*scene.lightGrid.w;
+      var ptLight=0.0;
+      for(var lxi=-1;lxi<=1;lxi++){for(var lzi=-1;lzi<=1;lzi++){
+        let lp2=vec3f(gx+f32(lxi)*scene.lightGrid.z,scene.lightGrid.x,gz+f32(lzi)*scene.lightGrid.w);
+        let Lv2=lp2-wp;let ld=length(Lv2);if(ld>scene.lightGrid.y){continue;}
+        let att=pow(clamp(1.0-ld/scene.lightGrid.y,0.0,1.0),2.0);
+        ptLight+=max(dot(N,Lv2/ld),0.0)*att;
+      }}
+      ptLight=ceil(min(ptLight*2.0,1.0)*3.0)/3.0;
+      let hemi=mix(vec3f(0.06,0.05,0.08),vec3f(0.14,0.13,0.15),N.y*0.5+0.5);
+      var tc=bodyCol*(hemi + max(q,ptLight)*0.75);
+
+      // Rim light
+      let rim=1.0-max(dot(N,V),0.0);let rimM=smoothstep(0.55,0.72,rim);
+      tc=mix(tc,mix(vec3f(0.08,0.06,0.12),bodyCol*1.2,0.2),rimM*0.65);
+
+      // Fog
+      let dist=length(wp-scene.camPos.xyz);
+      let fogDensity2=scene.fogParams.x+smoothstep(scene.fogParams.y,scene.fogParams.z,wp.y)*scene.fogParams.w;
+      tc=mix(tc,scene.fogBase.rgb,clamp(1.0-exp(-dist*dist*fogDensity2),0.0,0.50));
+      tc=pow(max(tc,vec3f(0)),vec3f(1.0/2.2));
+      return vec4f(tc,1);
+    }
+
+    let reflDir=reflect(-V,N);
+    var extraSpec=vec3f(0.0);
+    let lightCol=scene.lightParams.rgb; let lightH=scene.lightGrid.x; let lightInt=scene.lightParams.a; let lightRad=scene.lightGrid.y;
+    let gridX=scene.lightGrid.z; let gridZ=scene.lightGrid.w;
+
+    // Per-object variation
+    let objH=hash31(vec3f(floor(wp.x*0.5),floor(wp.y*0.5),floor(wp.z*0.5)));
+    let objH2=hash31(vec3f(floor(wp.x*0.5)+7.1,floor(wp.y*0.5)+3.3,floor(wp.z*0.5)+11.7));
+    albedo*=0.88+objH*0.24;
+    albedo+=vec3f(objH2*0.04-0.02, objH*0.02-0.01, -objH2*0.03+0.015);
+
+    // Floor micro-detail
+    let isFloor=1.0-smoothstep(0.0,0.3,wp.y);
+    if(isFloor>0.1){
+        let pourShift=hash21(vec2f(floor(wp.z*0.08),0.0))*0.08-0.04;
+        albedo+=vec3f(pourShift, pourShift*0.7, pourShift*0.5)*isFloor;
+        let splotch=pow(noise2d(wp.xz*0.6),3.0);
+        albedo-=vec3f(splotch*0.10, splotch*0.08, splotch*0.06)*isFloor;
+    }
+
+    // Wall detail
+    let isWall=step(0.7,1.0-abs(N.y));
+    if(isWall>0.1){
+        let dirtGrad=(1.0-smoothstep(0.0,2.0,wp.y));
+        albedo-=vec3f(dirtGrad*0.14, dirtGrad*0.12, dirtGrad*0.08)*isWall;
+    }
+
+    // Steel detection
+    let maxC=max(max(albedo.r,albedo.g),albedo.b);
+    let minC=min(min(albedo.r,albedo.g),albedo.b);
+    let sat=maxC-minC;
+    let isPaintedMetal=step(0.4,metal)*step(0.08,sat);
+    if(isPaintedMetal>0.3){
+        let clearCoat=pow(max(dot(N,normalize(V+L)),0.0),256.0)*0.25;
+        extraSpec+=vec3f(clearCoat)*isPaintedMetal;
+    }
+    let isBareSteel=step(0.7,metal)*step(sat,0.08);
+    if(isBareSteel>0.3){
+        let brush=noise2d(vec2f(wp.y*25.0, (wp.x+wp.z)*0.3));
+        albedo+=vec3f(brush*0.04-0.02)*isBareSteel;
+        rough+=brush*0.06*isBareSteel;
+        let rustNoise=pow(noise2d(wp.xz*4.0+vec2f(wp.y*2.0,0.0)),2.5);
+        let rustZone=(1.0-smoothstep(0.0,3.0,wp.y))*0.6+0.2;
+        let rust=rustNoise*rustZone*isBareSteel;
+        albedo+=vec3f(rust*0.18, -rust*0.06, -rust*0.10);
+        rough+=rust*0.25;
+    }
+
+    albedo=clamp(albedo,vec3f(0.02),vec3f(1.0));
+    rough=clamp(rough,0.05,1.0);
+
+    // AO
+    let NdV=max(dot(N,V),0.0);
+    let edgeDark=pow(1.0-NdV,4.0)*0.14;
+    let groundAO=smoothstep(0.0,2.5,wp.y)*0.18;
+    let undersideAO=smoothstep(0.0,-0.6,N.y)*0.22;
+    let totalAO=clamp(edgeDark+undersideAO,0.0,0.45);
+    let ambS=0.82+groundAO;
+
+    // Lighting
+    let hemi=mix(vec3f(0.04,0.04,0.05),vec3f(0.14,0.13,0.13),N.y*0.5+0.5)*ambS;
+    let diff=max(dot(N,L),0.0)*0.25;
+    let H2=normalize(V+L); let shin=mix(128.0,4.0,rough*rough);
+    let specRaw=pow(max(dot(N,H2),0.0),shin); let specStr=mix(0.40,0.02,rough);
+    let F0=mix(vec3f(0.04),albedo,metal); let fresnel=F0+(1.0-F0)*pow(1.0-NdV,5.0);
+    let kD=(1.0-metal);
+    var c=albedo*(hemi+diff)*kD + fresnel*specRaw*specStr*max(dot(N,L),0.0);
+    c+=extraSpec;
+
+    // Point lights (9 nearest)
+    let gx=round(wp.x/gridX)*gridX; let gz=round(wp.z/gridZ)*gridZ;
+    for(var lxi=-1;lxi<=1;lxi++){for(var lzi=-1;lzi<=1;lzi++){
+        let lp=vec3f(gx+f32(lxi)*gridX,lightH,gz+f32(lzi)*gridZ);
+        c+=pointLight(wp,N,V,lp,lightCol,lightInt,lightRad,rough)*albedo*kD;
+    }}
+    c*=(1.0-totalAO);
+
+    // Volumetric light
+    let dist=length(wp-scene.camPos.xyz);
+    let camPos=scene.camPos.xyz;
+    let rayDir=normalize(wp-camPos);
+    var volLight=vec3f(0);
+    let stepSz=min(dist,40.0)/6.0;
+    let dustBase=scene.gradeMid.w;
+    for(var si=0;si<6;si++){
+        let sPos=camPos+rayDir*(stepSz*(f32(si)+0.5));
+        if(sPos.y<0.0||sPos.y>lightH+1.0){continue;}
+        let slx=round(sPos.x/gridX)*gridX; let slz=round(sPos.z/gridZ)*gridZ;
+        let lp2=vec3f(slx, lightH, slz);
+        let toL=lp2-sPos; let ld2=dot(toL,toL);
+        if(ld2>lightRad*lightRad){continue;} let ld=sqrt(ld2); let att=pow(clamp(1.0-ld/lightRad,0.0,1.0),2.0);
+        let cosA=dot(rayDir,toL/ld); let g2=0.5;
+        let phase=(1.0-g2*g2)/(4.0*3.14159*pow(1.0+g2*g2-2.0*g2*cosA,1.5));
+        let cone=pow(max(-toL.y/ld,0.0),1.5);
+        let dust=dustBase+smoothstep(2.0,lightH,sPos.y)*dustBase*1.8;
+        volLight+=lightCol*att*phase*cone*dust*stepSz;
+    }
+    c+=min(volLight, vec3f(0.18));
+
+    // God rays
+    let nlx=round(wp.x/gridX)*gridX; let nlz=round(wp.z/gridZ)*gridZ;
+    let nlDist=length(vec2f(wp.x-nlx, wp.z-nlz));
+    let coneR=mix(5.0,1.0,smoothstep(0.0,lightH,wp.y));
+    let inCone=smoothstep(coneR,coneR*0.3,nlDist);
+    let colH=smoothstep(0.5,3.0,wp.y)*(1.0-smoothstep(lightH-1.0,lightH,wp.y));
+    c+=lightCol*inCone*colH*0.06;
+    let isCeil=smoothstep(lightH-1.5,lightH,wp.y)*step(0.7,N.y);
+    c+=lightCol*isCeil*exp(-nlDist*nlDist*0.12)*0.08;
+    c+=lightCol*isFloor*exp(-nlDist*nlDist*0.04)*0.08;
+
+    // Fog
+    let fogDensity=scene.fogParams.x+smoothstep(scene.fogParams.y,scene.fogParams.z,wp.y)*scene.fogParams.w;
+    var fogColor=mix(scene.fogBase.rgb, scene.fogCeil.rgb, smoothstep(scene.fogParams.y-1.0,scene.fogParams.z,wp.y));
+    c=mix(c,fogColor,clamp(1.0-exp(-dist*dist*fogDensity),0.0,0.50));
+
+    // GT6 post
+    let screenW=scene.screen.x; let screenH=scene.screen.y; let time=scene.screen.z;
+    let fragUV=v.pos.xy/vec2f(screenW,screenH);
+    let preLuma=dot(c, vec3f(0.2126,0.7152,0.0722));
+    let A2=0.22; let B2=0.30; let C2=0.10; let D2=0.20; let E2=0.01; let F2=0.30;
+    let numer=(c*(A2*c+C2*B2)+D2*E2);let denom=(c*(A2*c+B2)+D2*F2);
+    let wN=(3.0*(A2*3.0+C2*B2)+D2*E2);let wD=(3.0*(A2*3.0+B2)+D2*F2);
+    c=(numer/denom)/(wN/wD);
+    c=pow(max(c,vec3f(0)),vec3f(1.0/2.2));
+    let luma=dot(c, vec3f(0.2126,0.7152,0.0722));
+    let shadowBlend=smoothstep(0.3,0.0,luma);
+    let midBlend=smoothstep(0.0,0.3,luma)*smoothstep(0.7,0.4,luma);
+    c+=scene.gradeShadow.rgb*shadowBlend;
+    c+=scene.gradeMid.rgb*midBlend;
+    let hiDesat=scene.gradeShadow.w;
+    let hiBlend=smoothstep(0.5,0.9,luma);
+    c=mix(c, vec3f(luma), hiBlend*hiDesat);
+    c=mix(vec3f(0.5),c,scene.postParams.x);
+    let vigUV=fragUV*2.0-1.0;
+    let vigDist=length(vigUV*vec2f(1.0, screenW/screenH*0.6));
+    c*=1.0-smoothstep(0.7,1.6,vigDist)*scene.postParams.y;
+    let grainSeed=fract(sin(dot(fragUV*vec2f(screenW,screenH)+vec2f(time*143.0,time*97.0),vec2f(12.9898,78.233)))*43758.5453);
+    c+=vec3f((grainSeed-0.5)*mix(scene.postParams.z,scene.postParams.w,luma));
+    c=clamp(c,vec3f(0),vec3f(1.3));
+    return vec4f(c,1);
+}
+`;
+
+
+// ══════════════════════════════════════════════════
+// INSTANCED RENDERER
+// ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════
+// WATER WGSL — screen-space raymarched water from SDA v12.3
+// ══════════════════════════════════════════════════
+const WATER_WGSL = `
+struct WU { a:vec4f, b:vec4f, c:vec4f, d:vec4f, e:vec4f, f:vec4f, g:vec4f, bounds:vec4f };
+@group(0)@binding(0) var<uniform> u:WU;
+
+@vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4f{
+    let p=array(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
+    return vec4f(p[i],0,1);
+}
+
+fn hash2v(p:vec2f)->vec2f{let k=vec2f(dot(p,vec2f(127.1,311.7)),dot(p,vec2f(269.5,183.3)));return fract(sin(k)*43758.5453)*2.0-1.0;}
+fn gnoise(p:vec2f)->f32{let i=floor(p);let f=fract(p);let u2=f*f*f*(f*(f*6.0-15.0)+10.0);let ga=hash2v(i);let gb=hash2v(i+vec2f(1,0));let gc=hash2v(i+vec2f(0,1));let gd=hash2v(i+vec2f(1,1));return mix(mix(dot(ga,f),dot(gb,f-vec2f(1,0)),u2.x),mix(dot(gc,f-vec2f(0,1)),dot(gd,f-vec2f(1,1)),u2.x),u2.y);}
+fn fbm3(p:vec2f)->f32{var v=0.0;var a=0.5;var q=p;for(var i=0;i<4;i++){v+=a*gnoise(q);q*=2.03;a*=0.49;}return v;}
+
+fn waveH(p:vec2f,t:f32,sc:f32,sp:f32,amp:f32)->f32{
+    var h=0.0;
+    h+=(1.0-abs(sin(p.x*sc*0.7+t*sp*0.6)))*0.28-0.14;
+    h+=(1.0-abs(sin(p.y*sc*0.55+t*sp*0.45+1.2)))*0.22-0.11;
+    h+=sin((p.x*0.7+p.y*0.9)*sc*1.3+t*sp*0.85)*0.16;
+    h+=sin((p.x*1.1-p.y*0.65)*sc*2.0+t*sp*1.2)*0.10;
+    h+=sin((p.x*0.4+p.y*1.3)*sc*3.1+t*sp*1.6)*0.06;
+    h+=sin((p.x*1.5-p.y*0.3)*sc*3.8+t*sp*1.9)*0.04;
+    h+=gnoise(p*sc*0.7+vec2f(t*sp*0.25,t*sp*0.18))*0.12;
+    h+=gnoise(p*sc*1.4+vec2f(t*sp*0.4,-t*sp*0.3))*0.05;
+    h+=sin(p.x*sc*5.0+p.y*sc*4.2+t*sp*2.2)*0.022;
+    return h*amp;
+}
+fn waveN(p:vec2f,t:f32,sc:f32,sp:f32,amp:f32)->vec3f{
+    let e=0.008;
+    let c=waveH(p,t,sc,sp,amp);let dx=waveH(p+vec2f(e,0),t,sc,sp,amp);let dz=waveH(p+vec2f(0,e),t,sc,sp,amp);
+    return normalize(vec3f(c-dx,e,c-dz));
+}
+fn microN(p:vec2f,t:f32,sc:f32,sp:f32)->vec3f{
+    let e=0.004;let freq=sc*7.0;let s=sp*1.8;
+    let base=sin(p.x*freq+t*s)*0.35+sin(p.y*freq*1.3+t*s*0.7)*0.30+sin((p.x*0.8+p.y*0.6)*freq*0.9+t*s*1.1)*0.22;
+    let bx=sin((p.x+e)*freq+t*s)*0.35+sin(p.y*freq*1.3+t*s*0.7)*0.30+sin(((p.x+e)*0.8+p.y*0.6)*freq*0.9+t*s*1.1)*0.22;
+    let bz=sin(p.x*freq+t*s)*0.35+sin((p.y+e)*freq*1.3+t*s*0.7)*0.30+sin((p.x*0.8+(p.y+e)*0.6)*freq*0.9+t*s*1.1)*0.22;
+    return normalize(vec3f(base-bx,e*10.0,base-bz));
+}
+fn skyColor(rd:vec3f,time:f32,lDir:vec3f)->vec3f{
+    let skyY=clamp(rd.y,0.0,1.0);
+    var sky=mix(vec3f(0.55,0.65,0.75),vec3f(0.08,0.14,0.30),pow(skyY,0.5));
+    sky=mix(vec3f(0.28,0.42,0.62),sky,smoothstep(0.0,0.4,skyY));
+    sky+=vec3f(0.12,0.08,0.04)*exp(-skyY*4.0);
+    let sunDot=max(dot(rd,lDir),0.0);
+    sky+=vec3f(1.0,0.9,0.7)*pow(sunDot,256.0)*3.0;
+    sky+=vec3f(0.8,0.6,0.3)*pow(sunDot,16.0)*0.25;
+    return sky;
+}
+
+@fragment fn fs(@builtin(position) fc:vec4f)->@location(0) vec4f{
+    let time=u.a.x;let W=u.a.y;let H=u.a.z;let waterY=u.a.w;
+    let eye=u.b.xyz;let fov=u.b.w;
+    let tgt=u.c.xyz;let sc=u.c.w;
+    let deep=u.d.xyz;let sp=u.d.w;
+    let shallow=u.e.xyz;let amp=u.e.w;
+    let lDir=normalize(u.f.xyz);let foam=u.f.w;
+    let specPw=u.g.z;
+    let bMin=u.bounds.xy;let bMax=u.bounds.zw;
+
+    let aspect=W/H;
+    let ndc=vec2f((fc.x/W)*2.0-1.0,1.0-(fc.y/H)*2.0);
+    let fwd=normalize(tgt-eye);
+    let right=normalize(cross(fwd,vec3f(0,1,0)));
+    let up2=cross(right,fwd);
+    let halfH=tan(fov*0.5);
+    let rd=normalize(fwd+right*ndc.x*aspect*halfH+up2*ndc.y*halfH);
+
+    let denom=rd.y;
+    if(abs(denom)<0.0001){discard;}
+    let tHit=(waterY-eye.y)/denom;
+    if(tHit<0.0){discard;}
+    if(tHit>80.0){discard;}
+
+    let hit=eye+rd*tHit;
+
+    // Bounds check — only render water within the declared region
+    if(hit.x<bMin.x||hit.x>bMax.x||hit.z<bMin.y||hit.z>bMax.y){discard;}
+
+    let wh=waveH(hit.xz,time,sc,sp,amp);
+    let Nmacro=waveN(hit.xz,time,sc,sp,amp);
+    let Nmicro=microN(hit.xz,time,sc,sp);
+    let microWeight=0.25*(1.0-smoothstep(3.0,15.0,tHit));
+    let N=normalize(mix(Nmacro,Nmicro,microWeight));
+    let V=normalize(eye-hit);
+
+    // Fresnel
+    let cosTheta=max(dot(V,N),0.0);
+    let fresnel=0.02+(1.0-0.02)*pow(1.0-cosTheta,5.0);
+
+    // Reflection
+    let reflDir=reflect(-V,N);
+    let reflColor=skyColor(reflDir,time,lDir);
+
+    // Specular
+    let R=reflect(-lDir,N);let VdotR=max(dot(R,V),0.0);
+    let specTight=pow(VdotR,specPw)*2.5;
+    let specBroad=pow(VdotR,specPw*0.12)*0.12;
+
+    // Refraction / water body
+    let distort=N.xz*0.08*amp*10.0;
+    let viewDepth=clamp(tHit*0.15,0.0,1.0);
+    let absorption=vec3f(exp(-viewDepth*3.0),exp(-viewDepth*1.2),exp(-viewDepth*0.4));
+    let waterBody=mix(shallow,deep,viewDepth)*absorption;
+    let scatterNoise=fbm3(hit.xz*2.0+distort+vec2f(time*0.02,0.0))*0.5+0.5;
+    let scatter=vec3f(0.04,0.10,0.12)*scatterNoise*viewDepth;
+    let refrColor=waterBody+scatter;
+
+    // SSS
+    let sssAngle=max(dot(V,-lDir),0.0);
+    let sssCrest=max(wh/max(amp,0.01),0.0);
+    let sss=vec3f(0.08,0.30,0.25)*pow(sssAngle,3.0)*sssCrest*1.5;
+
+    // Compose
+    var col=mix(refrColor,reflColor,clamp(fresnel,0.0,1.0));
+    col+=sss;
+    col+=vec3f(1.0,0.95,0.85)*specTight;
+    col+=vec3f(0.5,0.6,0.7)*specBroad;
+
+    // Foam
+    let foamNoise=gnoise(hit.xz*sc*3.0+vec2f(time*0.08,time*0.06))*0.5+0.5;
+    let foamBase=smoothstep(foam*0.4,foam*1.3,wh);
+    let foamBreak=smoothstep(0.35,0.65,foamNoise);
+    col=mix(col,vec3f(0.88,0.92,0.96)+vec3f(0.05)*foamNoise,foamBase*foamBreak*0.6);
+
+    col*=mix(0.75,1.0,smoothstep(0.3,1.5,tHit));
+    let baseAlpha=mix(0.50,0.93,clamp(fresnel*1.5,0.0,1.0));
+    let alpha=mix(baseAlpha,0.35,smoothstep(10.0,80.0,tHit));
+    return vec4f(col,alpha);
+}`;
+
+
+const MAX_BOX=6000, MAX_CYL=1200, MAX_SPH=500, MAX_BVL=1200, MAX_HMN=30;
+const INST_STRIDE=24, INST_BYTES=INST_STRIDE*4;
+
+const renderer = {
+    canvas:null, device:null, ctx:null, format:null, geoPipe:null,
+    boxVB:null,boxIB:null,boxIC:0, cylVB:null,cylIB:null,cylIC:0,
+    sphVB:null,sphIB:null,sphIC:0, bvlVB:null,bvlIB:null,bvlIC:0,
+    hmnVB:null,hmnIB:null,hmnIC:0,
+    sceneUB:null, waterUB:null, waterPipe:null, waterBG:null,
+    boxSB:null,cylSB:null,sphSB:null,bvlSB:null,hmnSB:null,
+    boxBG:null,cylBG:null,sphBG:null,bvlBG:null,hmnBG:null,
+    boxData:new Float32Array(MAX_BOX*INST_STRIDE),
+    cylData:new Float32Array(MAX_CYL*INST_STRIDE),
+    sphData:new Float32Array(MAX_SPH*INST_STRIDE),
+    bvlData:new Float32Array(MAX_BVL*INST_STRIDE),
+    hmnData:new Float32Array(MAX_HMN*INST_STRIDE),
+    dtex:null,dview:null,
+};
+
+function uploadMesh(d,geo){
+    const vb=d.createBuffer({size:geo.V.byteLength,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
+    d.queue.writeBuffer(vb,0,geo.V);
+    const ib=d.createBuffer({size:geo.I.byteLength,usage:GPUBufferUsage.INDEX|GPUBufferUsage.COPY_DST});
+    d.queue.writeBuffer(ib,0,geo.I);
+    return{vb,ib,ic:geo.I.length};
+}
+
+function writeInst(arr,idx,M,r,g,b,rough,metal,extra1,extra2,extra3){
+    const off=idx*INST_STRIDE;
+    for(let k=0;k<16;k++)arr[off+k]=M[k];
+    arr[off+16]=r;arr[off+17]=g;arr[off+18]=b;arr[off+19]=rough;
+    arr[off+20]=metal;arr[off+21]=extra1||0;arr[off+22]=extra2||0;arr[off+23]=extra3||0;
+}
+
+renderer.init = async function(){
+    if(!navigator.gpu){document.getElementById('hint').textContent='WebGPU not available';return false;}
+    const adapter=await navigator.gpu.requestAdapter();
+    if(!adapter){document.getElementById('hint').textContent='No GPU adapter';return false;}
+    this.device=await adapter.requestDevice();
+    this.format=navigator.gpu.getPreferredCanvasFormat();
+    this.canvas=document.getElementById('c');
+    this.ctx=this.canvas.getContext('webgpu');
+    try{this.ctx.configure({device:this.device,format:'rgba16float',alphaMode:'opaque',colorSpace:'display-p3',toneMapping:{mode:'extended'}});this.format='rgba16float';console.log('HDR');}
+    catch(e){this.ctx.configure({device:this.device,format:this.format,alphaMode:'opaque'});console.log('SDR');}
+    this.resize();addEventListener('resize',()=>this.resize());
+    const d=this.device;
+    // Meshes
+    const boxV=new Float32Array([-1,-1,1,0,0,1,1,-1,1,0,0,1,1,1,1,0,0,1,-1,1,1,0,0,1,1,-1,-1,0,0,-1,-1,-1,-1,0,0,-1,-1,1,-1,0,0,-1,1,1,-1,0,0,-1,-1,1,1,0,1,0,1,1,1,0,1,0,1,1,-1,0,1,0,-1,1,-1,0,1,0,-1,-1,-1,0,-1,0,1,-1,-1,0,-1,0,1,-1,1,0,-1,0,-1,-1,1,0,-1,0,1,-1,1,1,0,0,1,-1,-1,1,0,0,1,1,-1,1,0,0,1,1,1,1,0,0,-1,-1,-1,-1,0,0,-1,-1,1,-1,0,0,-1,1,1,-1,0,0,-1,1,-1,-1,0,0]);
+    const boxI=new Uint16Array([0,1,2,0,2,3,4,5,6,4,6,7,8,9,10,8,10,11,12,13,14,12,14,15,16,17,18,16,18,19,20,21,22,20,22,23]);
+    let m=uploadMesh(d,{V:boxV,I:boxI});this.boxVB=m.vb;this.boxIB=m.ib;this.boxIC=m.ic;
+    m=uploadMesh(d,genCyl(20));this.cylVB=m.vb;this.cylIB=m.ib;this.cylIC=m.ic;
+    m=uploadMesh(d,genSphere(18,24));this.sphVB=m.vb;this.sphIB=m.ib;this.sphIC=m.ic;
+    m=uploadMesh(d,genBevelBox(0.08));this.bvlVB=m.vb;this.bvlIB=m.ib;this.bvlIC=m.ic;
+    m=uploadMesh(d,genHumanoid());this.hmnVB=m.vb;this.hmnIB=m.ib;this.hmnIC=m.ic;
+    // Pipeline
+    const shader=d.createShaderModule({code:INST_WGSL});
+    const vtxLayout={arrayStride:24,attributes:[{shaderLocation:0,offset:0,format:'float32x3'},{shaderLocation:1,offset:12,format:'float32x3'}]};
+    this.geoPipe=d.createRenderPipeline({layout:'auto',vertex:{module:shader,entryPoint:'vs',buffers:[vtxLayout]},fragment:{module:shader,entryPoint:'fs',targets:[{format:this.format}]},primitive:{topology:'triangle-list',cullMode:'back'},depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'}});
+    // Separate pipeline for humanoids — no backface culling = solid bodies
+    this.hmnPipe=d.createRenderPipeline({layout:'auto',vertex:{module:shader,entryPoint:'vs',buffers:[vtxLayout]},fragment:{module:shader,entryPoint:'fs',targets:[{format:this.format}]},primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'}});
+    // Buffers
+    this.sceneUB=d.createBuffer({size:512,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    this.boxSB=d.createBuffer({size:MAX_BOX*INST_BYTES,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
+    this.cylSB=d.createBuffer({size:MAX_CYL*INST_BYTES,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
+    this.sphSB=d.createBuffer({size:MAX_SPH*INST_BYTES,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
+    this.bvlSB=d.createBuffer({size:MAX_BVL*INST_BYTES,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
+    this.hmnSB=d.createBuffer({size:MAX_HMN*INST_BYTES,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
+    const bgl=this.geoPipe.getBindGroupLayout(0);
+    this.boxBG=d.createBindGroup({layout:bgl,entries:[{binding:0,resource:{buffer:this.sceneUB}},{binding:1,resource:{buffer:this.boxSB}}]});
+    this.cylBG=d.createBindGroup({layout:bgl,entries:[{binding:0,resource:{buffer:this.sceneUB}},{binding:1,resource:{buffer:this.cylSB}}]});
+    this.sphBG=d.createBindGroup({layout:bgl,entries:[{binding:0,resource:{buffer:this.sceneUB}},{binding:1,resource:{buffer:this.sphSB}}]});
+    this.bvlBG=d.createBindGroup({layout:bgl,entries:[{binding:0,resource:{buffer:this.sceneUB}},{binding:1,resource:{buffer:this.bvlSB}}]});
+    this.hmnBG=d.createBindGroup({layout:this.hmnPipe.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.sceneUB}},{binding:1,resource:{buffer:this.hmnSB}}]});
+    // Water pipeline — screen-space pass with alpha blending
+    const waterShader=d.createShaderModule({code:WATER_WGSL});
+    this.waterUB=d.createBuffer({size:128,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    this.waterPipe=d.createRenderPipeline({layout:'auto',
+        vertex:{module:waterShader,entryPoint:'vs',buffers:[]},
+        fragment:{module:waterShader,entryPoint:'fs',targets:[{format:this.format,
+            blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha',operation:'add'},
+                   alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha',operation:'add'}}}]},
+        primitive:{topology:'triangle-list'},
+    });
+    this.waterBG=d.createBindGroup({layout:this.waterPipe.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.waterUB}}]});
+    console.log('Water pipeline ready');
+    return true;
+};
+
+renderer.resize = function(){
+    const dpr=Math.min(devicePixelRatio||1,2.0);
+    this.canvas.width=Math.floor(innerWidth*dpr);this.canvas.height=Math.floor(innerHeight*dpr);
+    if(this.dtex)this.dtex.destroy();
+    this.dtex=this.device.createTexture({size:[this.canvas.width,this.canvas.height],format:'depth24plus',usage:GPUTextureUsage.RENDER_ATTACHMENT});
+    this.dview=this.dtex.createView();
+};
+
+renderer.frame = function(t, VP, eye, model){
+    const d=this.device;
+    const state=model.getState();
+    const objs=state.objects;
+    const workers=state.agents||[];
+    const sunDir=state.lighting.sunDir;
+    const dt=1/60;
+    // Scene uniform
+    const atmos=state.atmos;
+    const su=new Float32Array(48);
+    su.set(VP,0);su[16]=eye[0];su[17]=eye[1];su[18]=eye[2];su[19]=0;
+    su[20]=sunDir[0];su[21]=sunDir[1];su[22]=sunDir[2];su[23]=0;
+    su[24]=this.canvas.width;su[25]=this.canvas.height;su[26]=t;su[27]=0;
+    // fogParams
+    su[28]=atmos.fog[0];su[29]=atmos.fog[1];su[30]=atmos.fog[2];su[31]=atmos.fog[3];
+    // fogBase
+    su[32]=atmos.fogBase[0];su[33]=atmos.fogBase[1];su[34]=atmos.fogBase[2];su[35]=0;
+    // fogCeil
+    su[36]=atmos.fogCeil[0];su[37]=atmos.fogCeil[1];su[38]=atmos.fogCeil[2];su[39]=0;
+    // lightParams
+    su[40]=atmos.light[0];su[41]=atmos.light[1];su[42]=atmos.light[2];su[43]=atmos.light[3];
+    // lightGrid
+    su[44]=atmos.lightGrid[0];su[45]=atmos.lightGrid[1];su[46]=atmos.lightGrid[2];su[47]=atmos.lightGrid[3];
+    d.queue.writeBuffer(this.sceneUB,0,su);
+    // Post params — second write (offset 192 = 48 floats)
+    const su2=new Float32Array(12);
+    su2[0]=atmos.post[0];su2[1]=atmos.post[1];su2[2]=atmos.post[2];su2[3]=atmos.post[3];
+    su2[4]=atmos.gradeShadow[0];su2[5]=atmos.gradeShadow[1];su2[6]=atmos.gradeShadow[2];su2[7]=atmos.gradeShadow[3];
+    su2[8]=atmos.gradeMid[0];su2[9]=atmos.gradeMid[1];su2[10]=atmos.gradeMid[2];su2[11]=atmos.gradeMid[3];
+    d.queue.writeBuffer(this.sceneUB,192,su2);
+    // Pack instances
+    let boxN=0,cylN=0,sphN=0,bvlN=0,hmnN=0;
+    const M=new Float32Array(16);
+    for(let i=0;i<objs.length;i++){
+        const o=objs[i];
+        const ddx=o.x-eye[0],ddz=o.z-eye[2];
+        const cullDist = state.atmos?.clear?.[0] > 0.4 ? 22500 : 6400; // larger for outdoor
+        if(ddx*ddx+ddz*ddz>cullDist&&Math.max(o.sx,o.sy,o.sz)<3)continue;
+        M.fill(0);M[0]=o.sx*0.5;M[5]=o.sy*0.5;M[10]=o.sz*0.5;M[15]=1;M[12]=o.x;M[13]=o.y;M[14]=o.z;
+        if(o.mesh===1){writeInst(this.cylData,cylN,M,o.r,o.g,o.b,o.rough,o.metal);cylN++;}
+        else if(o.mesh===2){
+            if(o.cloudPhase!==undefined&&o.cloudPhase>=0){
+                writeInst(this.sphData,sphN,M,o.r,o.g,o.b,o.cloudPhase,o.metal,2.0);
+            } else {
+                writeInst(this.sphData,sphN,M,o.r,o.g,o.b,o.rough,o.metal);
+            }
+            sphN++;
+        }
+        else if(o.mesh===3){writeInst(this.bvlData,bvlN,M,o.r,o.g,o.b,o.rough,o.metal);bvlN++;}
+        else{writeInst(this.boxData,boxN,M,o.r,o.g,o.b,o.rough,o.metal);boxN++;}
+    }
+    // Doors — animated by proximity
+    const doorList=state.doors||[];
+    for(const door of doorList){
+        const slideY=door.open*door.h; // slide up
+        M.fill(0);M[0]=door.w*0.5;M[5]=door.h*0.5;M[10]=door.d*0.5;M[15]=1;
+        M[12]=door.x;M[13]=door.y+slideY;M[14]=door.z;
+        writeInst(this.boxData,boxN,M, 0.38,0.35,0.30, 0.6, 0.3); boxN++;
+    }
+    // Conveyor boxes
+    const conv=state.conveyorData;
+    if(conv&&conv.boxes){
+        for(const box of conv.boxes){
+            box.dist+=box.speed*dt;
+            if(box.dist>conv.total)box.dist-=conv.total;
+            let d2=box.dist,seg=0;
+            while(seg<conv.lens.length-1&&d2>conv.lens[seg]){d2-=conv.lens[seg];seg++;}
+            const t2=d2/conv.lens[seg];
+            const a=conv.path[seg],b=conv.path[seg+1];
+            const bx=a[0]+(b[0]-a[0])*t2,by=a[1]+(b[1]-a[1])*t2+box.sy/2+0.06,bz=a[2]+(b[2]-a[2])*t2;
+            M.fill(0);M[0]=box.sx*0.5;M[5]=box.sy*0.5;M[10]=box.sz*0.5;M[15]=1;M[12]=bx;M[13]=by;M[14]=bz;
+            writeInst(this.boxData,boxN,M,box.r,box.g,box.b,0.8,0);boxN++;
+        }
+    }
+    // Workers
+    // Workers — behavior + animated characters
+    for(let wi=0;wi<workers.length;wi++){
+        const w=workers[wi];
+        w.stateTimer+=dt;
+        // ── Behavior state machine ──
+        switch(w.state){
+          case 'walking':
+            w.pz+=w.dir*w.speed*dt;
+            w.walkPhase+=w.speed*5.0*dt;
+            if(w.pz>w.patrolZ2){w.pz=w.patrolZ2;w.dir=-1;}
+            if(w.pz<w.patrolZ1){w.pz=w.patrolZ1;w.dir=1;}
+            if(w.stateTimer>2.0+Math.random()*4.0/w.energy){
+              w.state=Math.random()<0.5?'idle':'looking';
+              w.stateTimer=0; w.lookAngle=(Math.random()-0.5)*2;
+            }
+            break;
+          case 'idle':
+            if(w.stateTimer>1.5/w.energy+Math.random()*2){
+              w.state=Math.random()<0.7?'walking':'looking';
+              w.stateTimer=0;
+            }
+            break;
+          case 'looking':
+            if(w.stateTimer>1.0+Math.random()*2){
+              w.state=Math.random()<0.6?'walking':'idle';
+              w.stateTimer=0;
+            }
+            break;
+        }
+        const wdx=w.px-eye[0],wdz=w.pz-eye[2];
+        if(wdx*wdx+wdz*wdz>4000)continue;
+        // Shadow
+        M.fill(0);M[0]=0.35;M[5]=0.001;M[10]=0.35;M[15]=1;M[12]=w.px;M[13]=0.006;M[14]=w.pz;
+        writeInst(this.boxData,boxN,M,0.12,0.11,0.10,0.95,0);boxN++;
+        // Humanoid — facing direction
+        const angle=w.dir>0?0:Math.PI;
+        const ca=Math.cos(angle),sa=Math.sin(angle);
+        M.fill(0);M[0]=ca;M[2]=sa;M[5]=1;M[8]=-sa;M[10]=ca;M[12]=w.px;M[13]=0;M[14]=w.pz;M[15]=1;
+        const off=hmnN*INST_STRIDE;
+        for(let k=0;k<16;k++)this.hmnData[off+k]=M[k];
+        // cr: skin.rgb + walkPhase
+        this.hmnData[off+16]=w.skin[0];
+        this.hmnData[off+17]=w.skin[1];
+        this.hmnData[off+18]=w.skin[2];
+        this.hmnData[off+19]=w.walkPhase;
+        // mp: outfitIndex, humanoidFlag, energy, stateFlag
+        this.hmnData[off+20]=w.outfit;
+        this.hmnData[off+21]=1.0;
+        this.hmnData[off+22]=w.energy;
+        this.hmnData[off+23]=w.state==='idle'?1.0:(w.state==='looking'?1.0:0.0);
+        hmnN++;
+    }
+    // Upload + draw
+    if(boxN>0)d.queue.writeBuffer(this.boxSB,0,this.boxData.buffer,0,boxN*INST_BYTES);
+    if(cylN>0)d.queue.writeBuffer(this.cylSB,0,this.cylData.buffer,0,cylN*INST_BYTES);
+    if(sphN>0)d.queue.writeBuffer(this.sphSB,0,this.sphData.buffer,0,sphN*INST_BYTES);
+    if(bvlN>0)d.queue.writeBuffer(this.bvlSB,0,this.bvlData.buffer,0,bvlN*INST_BYTES);
+    if(hmnN>0)d.queue.writeBuffer(this.hmnSB,0,this.hmnData.buffer,0,hmnN*INST_BYTES);
+    const enc=d.createCommandEncoder();
+    const cv=this.ctx.getCurrentTexture().createView();
+    const cc=atmos.clear;
+    const pass=enc.beginRenderPass({colorAttachments:[{view:cv,loadOp:'clear',storeOp:'store',clearValue:{r:cc[0],g:cc[1],b:cc[2],a:1}}],depthStencilAttachment:{view:this.dview,depthLoadOp:'clear',depthStoreOp:'store',depthClearValue:1}});
+    pass.setPipeline(this.geoPipe);
+    if(boxN>0){pass.setBindGroup(0,this.boxBG);pass.setVertexBuffer(0,this.boxVB);pass.setIndexBuffer(this.boxIB,'uint16');pass.drawIndexed(this.boxIC,boxN);}
+    if(cylN>0){pass.setBindGroup(0,this.cylBG);pass.setVertexBuffer(0,this.cylVB);pass.setIndexBuffer(this.cylIB,'uint16');pass.drawIndexed(this.cylIC,cylN);}
+    if(sphN>0){pass.setBindGroup(0,this.sphBG);pass.setVertexBuffer(0,this.sphVB);pass.setIndexBuffer(this.sphIB,'uint16');pass.drawIndexed(this.sphIC,sphN);}
+    if(bvlN>0){pass.setBindGroup(0,this.bvlBG);pass.setVertexBuffer(0,this.bvlVB);pass.setIndexBuffer(this.bvlIB,'uint16');pass.drawIndexed(this.bvlIC,bvlN);}
+    if(hmnN>0){pass.setPipeline(this.hmnPipe);pass.setBindGroup(0,this.hmnBG);pass.setVertexBuffer(0,this.hmnVB);pass.setIndexBuffer(this.hmnIB,'uint16');pass.drawIndexed(this.hmnIC,hmnN);}
+    pass.end();
+
+    // ── Water pass — screen-space for each water body ──
+    const waterBodies = state.waterBodies || [];
+    const cam2 = state.cam;
+    const ld2 = [Math.sin(cam2.yaw)*Math.cos(cam2.pitch), Math.sin(cam2.pitch), -Math.cos(cam2.yaw)*Math.cos(cam2.pitch)];
+    const tgt2 = [eye[0]+ld2[0], eye[1]+ld2[1], eye[2]+ld2[2]];
+    for (const wb of waterBodies) {
+        const wu = new Float32Array(32);
+        wu[0]=t; wu[1]=this.canvas.width; wu[2]=this.canvas.height; wu[3]=wb.y;
+        wu[4]=eye[0]; wu[5]=eye[1]; wu[6]=eye[2]; wu[7]=cam2.fov||1.2;
+        wu[8]=tgt2[0]; wu[9]=tgt2[1]; wu[10]=tgt2[2]; wu[11]=wb.waveScale;
+        wu[12]=wb.deep[0]; wu[13]=wb.deep[1]; wu[14]=wb.deep[2]; wu[15]=wb.waveSpeed;
+        wu[16]=wb.shallow[0]; wu[17]=wb.shallow[1]; wu[18]=wb.shallow[2]; wu[19]=wb.amplitude;
+        wu[20]=sunDir[0]; wu[21]=sunDir[1]; wu[22]=sunDir[2]; wu[23]=wb.foam;
+        wu[24]=0.5; wu[25]=0.5; wu[26]=wb.specPower; wu[27]=0;
+        // Bounds: minX, minZ, maxX, maxZ
+        wu[28]=wb.bounds[0]; wu[29]=wb.bounds[1]; wu[30]=wb.bounds[2]; wu[31]=wb.bounds[3];
+        d.queue.writeBuffer(this.waterUB, 0, wu);
+        const waterPass = enc.beginRenderPass({
+            colorAttachments:[{view:cv,loadOp:'load',storeOp:'store'}],
+        });
+        waterPass.setPipeline(this.waterPipe);
+        waterPass.setBindGroup(0, this.waterBG);
+        waterPass.draw(3);
+        waterPass.end();
+    }
+
+    d.queue.submit([enc.finish()]);
+    return boxN+cylN+sphN+bvlN+hmnN;
+};
+
+
+// ══════════════════════════════════════════════════
+// CONTROLLER — input, RAF, drives renderer
+// ══════════════════════════════════════════════════
+class Controller {
+    constructor(model, view, renderer) {
+        this.model = model; this.view = view; this.renderer = renderer;
+        this._abort = new AbortController(); this._sig = this._abort.signal;
+        this._rafId = null; this._t0 = 0; this._fc = 0; this._lastFps = 0;
+        this._mt = null; this._lt = null;
+        this.isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+    }
+
+    setupEventListeners() {
+        const sig = { signal: this._sig };
+        const canvas = this.renderer.canvas;
+        if (this.isTouch) {
+            document.querySelector('.joystick-zone').style.display = 'block';
+            document.querySelector('.look-zone').style.display = 'block';
+            document.getElementById('hint').textContent = 'Left: move · Right: look';
+        }
+
+        canvas.addEventListener('click', () => { audio.unlock(); if (!this.isTouch) canvas.requestPointerLock?.(); }, sig);
+        document.addEventListener('mousemove', e => {
+            audio.unlock();
+            if (document.pointerLockElement !== canvas) return;
+            const cam = this.model.getState().cam;
+            this.model.set('cam.yaw', cam.yaw - e.movementX * 0.002, { silent: true });
+            this.model.set('cam.pitch', Math.max(-1.5, Math.min(1.5, cam.pitch - e.movementY * 0.002)), { silent: true });
+        }, sig);
+        document.addEventListener('keydown', e => {
+            audio.unlock();
+            const k = e.key.toLowerCase();
+            if (k==='w') this.model.set('input.fwd',1,{silent:true});
+            if (k==='s') this.model.set('input.back',1,{silent:true});
+            if (k==='a') this.model.set('input.left',1,{silent:true});
+            if (k==='d') this.model.set('input.right',1,{silent:true});
+            if (k==='shift') this.model.set('input.sprint',1,{silent:true});
+        }, sig);
+        document.addEventListener('keyup', e => {
+            const k = e.key.toLowerCase();
+            if (k==='w') this.model.set('input.fwd',0,{silent:true});
+            if (k==='s') this.model.set('input.back',0,{silent:true});
+            if (k==='a') this.model.set('input.left',0,{silent:true});
+            if (k==='d') this.model.set('input.right',0,{silent:true});
+            if (k==='shift') this.model.set('input.sprint',0,{silent:true});
+        }, sig);
+
+        // Touch
+        const knob = document.getElementById('knob');
+        document.getElementById('joystick')?.addEventListener('touchstart', e => {
+            audio.unlock();
+            e.preventDefault(); const t = e.changedTouches[0];
+            this._mt = { id: t.identifier, sx: t.clientX, sy: t.clientY };
+        }, { ...sig, passive: false });
+        document.getElementById('look-zone')?.addEventListener('touchstart', e => {
+            e.preventDefault(); const t = e.changedTouches[0];
+            this._lt = { id: t.identifier, lx: t.clientX, ly: t.clientY };
+        }, { ...sig, passive: false });
+        document.addEventListener('touchmove', e => {
+            for (const t of e.changedTouches) {
+                if (this._mt && t.identifier === this._mt.id) {
+                    this.model.set('input.tmx', Math.max(-1,Math.min(1,(t.clientX-this._mt.sx)/50)), {silent:true});
+                    this.model.set('input.tmz', Math.max(-1,Math.min(1,(t.clientY-this._mt.sy)/50)), {silent:true});
+                }
+                if (this._lt && t.identifier === this._lt.id) {
+                    const cam = this.model.getState().cam;
+                    this.model.set('cam.yaw', cam.yaw-(t.clientX-this._lt.lx)*0.004, {silent:true});
+                    this.model.set('cam.pitch', Math.max(-1.5,Math.min(1.5,cam.pitch-(t.clientY-this._lt.ly)*0.004)), {silent:true});
+                    this._lt.lx=t.clientX; this._lt.ly=t.clientY;
+                }
+            }
+        }, { ...sig, passive: false });
+        const endT = e => { for(const t of e.changedTouches){
+            if(this._mt&&t.identifier===this._mt.id){this._mt=null;this.model.set('input.tmx',0,{silent:true});this.model.set('input.tmz',0,{silent:true});}
+            if(this._lt&&t.identifier===this._lt.id){this._lt=null;}
+        }};
+        document.addEventListener('touchend', endT, sig);
+        document.addEventListener('touchcancel', endT, sig);
+    }
+
+    start() {
+        this._t0 = this._lastFps = performance.now(); this._fc = 0;
+        const loop = now => { this._rafId = requestAnimationFrame(loop); this._tick(now); };
+        this._rafId = requestAnimationFrame(loop);
+    }
+
+    _tick(now) {
+        if (!this.renderer.device) return;
+        const dt = 1/60;
+        const state = this.model.getState();
+        const cam = state.cam, inp = state.input;
+        const spd = cam.speed * (inp.sprint?2:1) * dt;
+        const fwX=Math.sin(cam.yaw), fwZ=-Math.cos(cam.yaw);
+        const rX=Math.cos(cam.yaw), rZ=Math.sin(cam.yaw);
+        let dx=0, dz=0;
+        if(inp.fwd){dx+=fwX*spd;dz+=fwZ*spd;}
+        if(inp.back){dx-=fwX*spd;dz-=fwZ*spd;}
+        if(inp.left){dx-=rX*spd;dz-=rZ*spd;}
+        if(inp.right){dx+=rX*spd;dz+=rZ*spd;}
+        if(Math.abs(inp.tmx)>0.05||Math.abs(inp.tmz)>0.05){
+            dx+=(fwX*(-inp.tmz)+rX*inp.tmx)*spd*1.5;
+            dz+=(fwZ*(-inp.tmz)+rZ*inp.tmx)*spd*1.5;
+        }
+
+        // ── Collision — slide along walls ──
+        const PR = 0.25; // player radius
+        const objs = state.objects;
+        const agents = state.agents || [];
+        const colDoors = state.doors || [];
+
+        // Build door-zone list: areas near open doors are passable
+        function isInDoorZone(ox, oz) {
+            for (let di = 0; di < colDoors.length; di++) {
+                const d = colDoors[di];
+                if (d.open < 0.3) continue; // door must be partially open
+                const ddx = Math.abs(ox - d.x), ddz = Math.abs(oz - d.z);
+                if (ddx < d.w * 0.6 + 0.3 && ddz < 1.5) return true;
+                if (ddz < d.w * 0.6 + 0.3 && ddx < 1.5) return true;
+            }
+            return false;
+        }
+
+        // Test X and Z separately for wall sliding
+        let nx = cam.px + dx;
+        let nz = cam.pz;
+
+        // Check X move against objects
+        for (let i = 0; i < objs.length; i++) {
+            const o = objs[i];
+            if (o.sy < 0.4) continue;
+            if (o.sz < 0.15 && o.sx < 0.15) continue; // skip tiny objects
+            const cdx = nx - o.x, cdz = nz - o.z;
+            if (cdx*cdx + cdz*cdz > 25) continue;
+            if (isInDoorZone(o.x, o.z)) continue; // skip objects in open doorways
+            const ex = o.sx < 0.3 ? 0.05 : PR;
+            const ez = o.sz < 0.3 ? 0.05 : PR;
+            const hx = o.sx * 0.5 + ex, hz = o.sz * 0.5 + ez;
+            if (nx > o.x - hx && nx < o.x + hx &&
+                nz > o.z - hz && nz < o.z + hz) {
+                if (dx > 0) nx = o.x - hx;
+                else nx = o.x + hx;
+                dx = 0;
+            }
+        }
+
+        // Check Z move
+        nz = cam.pz + dz;
+        for (let i = 0; i < objs.length; i++) {
+            const o = objs[i];
+            if (o.sy < 0.4) continue;
+            if (o.sz < 0.15 && o.sx < 0.15) continue;
+            const cdx = nx - o.x, cdz = nz - o.z;
+            if (cdx*cdx + cdz*cdz > 25) continue;
+            if (isInDoorZone(o.x, o.z)) continue;
+            const ex = o.sx < 0.3 ? 0.05 : PR;
+            const ez = o.sz < 0.3 ? 0.05 : PR;
+            const hx = o.sx * 0.5 + ex, hz = o.sz * 0.5 + ez;
+            if (nx > o.x - hx && nx < o.x + hx &&
+                nz > o.z - hz && nz < o.z + hz) {
+                if (dz > 0) nz = o.z - hz;
+                else nz = o.z + hz;
+                dz = 0;
+            }
+        }
+
+        // Collide with workers (circle-circle)
+        for (let i = 0; i < agents.length; i++) {
+            const w = agents[i];
+            const adx = nx - w.px, adz = nz - w.pz;
+            const dist = Math.sqrt(adx * adx + adz * adz);
+            const minDist = PR + 0.3; // worker radius
+            if (dist < minDist && dist > 0.001) {
+                const push = (minDist - dist) / dist;
+                nx += adx * push;
+                nz += adz * push;
+            }
+        }
+
+        // Collide with doors (when closed)
+        for (const door of colDoors) {
+            if (door.open > 0.7) continue; // open enough to pass
+            const hx = door.w * 0.5, hz = door.d * 0.5;
+            if (nx > door.x - hx - PR && nx < door.x + hx + PR &&
+                nz > door.z - hz - PR && nz < door.z + hz + PR) {
+                // Push out on nearest axis
+                const overX = Math.min(nx - (door.x - hx - PR), (door.x + hx + PR) - nx);
+                const overZ = Math.min(nz - (door.z - hz - PR), (door.z + hz + PR) - nz);
+                if (overX < overZ) {
+                    nx += (nx < door.x) ? -overX : overX;
+                } else {
+                    nz += (nz < door.z) ? -overZ : overZ;
+                }
+            }
+        }
+
+        const b = cam.bounds;
+        cam.px=Math.max(b.min[0],Math.min(b.max[0],nx));
+        cam.pz=Math.max(b.min[2],Math.min(b.max[2],nz));
+        const eye=[cam.px,cam.py,cam.pz];
+        const ld=[Math.sin(cam.yaw)*Math.cos(cam.pitch),Math.sin(cam.pitch),-Math.cos(cam.yaw)*Math.cos(cam.pitch)];
+        const tgt=[eye[0]+ld[0],eye[1]+ld[1],eye[2]+ld[2]];
+        const P=persp(cam.fov,this.renderer.canvas.width/this.renderer.canvas.height,cam.near,cam.far);
+        const V=look(eye,tgt,[0,1,0]);
+        const VP=m4m(P,V);
+        const drawn=this.renderer.frame((now-this._t0)*0.001, VP, eye, this.model);
+        // Audio tick
+        audio.tick(dt, cam.px, cam.pz, state.agents);
+        // Door interaction — proximity open/close
+        const doorList = state.doors || [];
+        for (const door of doorList) {
+            const ddx = cam.px - door.x, ddz = cam.pz - door.z;
+            const dist = Math.sqrt(ddx*ddx + ddz*ddz);
+            const target = dist < door.range ? 1 : 0;
+            door.open += (target - door.open) * Math.min(dt * 4, 1); // smooth lerp
+        }
+        this._fc++;
+        if(this._fc%30===0){
+            const fps=Math.round(30000/(now-this._lastFps));
+            this._lastFps=now;
+            this.model.set('hud',{fps,drawn,px:cam.px,pz:cam.pz});
+        }
+    }
+    destroy(){if(this._rafId)cancelAnimationFrame(this._rafId);this._abort.abort();}
+}
+
+
+// ══════════════════════════════════════════════════
+// AUDIO SYSTEM — Web Audio + Speech Synthesis
+// Driven by JSON audio declaration
+// ══════════════════════════════════════════════════
+const AUDIO_PRESETS = {
+    warehouse: {
+        hvac: { enabled:true, frequency:120, volume:0.12 },
+        machinery: { enabled:true, frequency:55, volume:0.04, modRate:2.3 },
+        beeps: { enabled:true, frequency:1200, interval:[12,32], volume:0.08 },
+        workerPhrases: [
+            "Clear on aisle 3!", "Coming through!", "Watch your back!",
+            "Pallet coming through!", "Need a jack on dock 4",
+            "That ones going to staging", "10-4, copy that",
+            "Scanner's acting up again", "Can I get a spotter over here?",
+            "Last pallet, let's go!", "Safety first, people!"
+        ],
+        paPhrases: [
+            "Attention associates, please keep aisles clear for forklift traffic. Thank you.",
+            "Reminder: all associates must wear PPE on the warehouse floor at all times.",
+            "Safety reminder: maximum speed for powered equipment is 5 miles per hour inside the facility.",
+            "Great work today, team. Let's keep it safe and keep it moving."
+        ],
+        workerInterval: [10,28], paInterval: [45,85], workerRange: 15, masterVolume: 0.6,
+    },
+    factory: {
+        hvac: { enabled:true, frequency:90, volume:0.15 },
+        machinery: { enabled:true, frequency:42, volume:0.08, modRate:3.5 },
+        beeps: { enabled:true, frequency:1000, interval:[8,20], volume:0.10 },
+        workerPhrases: ["Machine clear!", "Starting press!", "Safety glasses on!", "Swap the die!", "Break in ten!"],
+        paPhrases: ["Attention: shift change in fifteen minutes.", "Maintenance to line 3 please."],
+        workerInterval: [12,25], paInterval: [60,120], workerRange: 12, masterVolume: 0.5,
+    },
+    office: {
+        hvac: { enabled:true, frequency:180, volume:0.04 },
+        machinery: { enabled:false },
+        beeps: { enabled:false },
+        workerPhrases: [],
+        paPhrases: [],
+        workerInterval: [999,999], paInterval: [999,999], workerRange: 8, masterVolume: 0.3,
+    },
+    hospital: {
+        hvac: { enabled:true, frequency:160, volume:0.06 },
+        machinery: { enabled:false },
+        beeps: { enabled:true, frequency:880, interval:[20,60], volume:0.04 },
+        workerPhrases: ["Vitals look good.", "Chart's updated.", "Room 4 needs a check.", "Shift change at seven."],
+        paPhrases: ["Paging Dr. Patel to the third floor. Dr. Patel, third floor.", "Code Blue, Ward B. Code Blue, Ward B."],
+        workerInterval: [15,40], paInterval: [60,150], workerRange: 10, masterVolume: 0.4,
+    },
+    outdoor: {
+        hvac: { enabled:false },
+        machinery: { enabled:false },
+        beeps: { enabled:false },
+        workerPhrases: [],
+        paPhrases: [],
+        workerInterval: [999,999], paInterval: [999,999], workerRange: 10, masterVolume: 0.3,
+    },
+    quiet: {
+        hvac: { enabled:true, frequency:200, volume:0.02 },
+        machinery: { enabled:false },
+        beeps: { enabled:false },
+        workerPhrases: [],
+        paPhrases: [],
+        workerInterval: [999,999], paInterval: [999,999], workerRange: 8, masterVolume: 0.2,
+    },
+};
+
+class Audio {
+    constructor() {
+        this.ctx = null;
+        this.unlocked = false;
+        this.config = null;
+        this.masterGain = null;
+        this.beepTimer = 0;
+        this.workerSpeechTimer = 0;
+        this.paSpeechTimer = 0;
+        this.lastWorkerPhrase = -1;
+        this.lastPAPhrase = -1;
+        this.speechReady = 'speechSynthesis' in window;
+    }
+
+    init(jsonAudio) {
+        // Resolve config from preset + overrides
+        const presetName = jsonAudio?.preset || 'warehouse';
+        const preset = AUDIO_PRESETS[presetName] || AUDIO_PRESETS.warehouse;
+        this.config = { ...preset };
+        // Override with explicit JSON fields
+        if (jsonAudio?.ambient?.hvac) Object.assign(this.config.hvac, jsonAudio.ambient.hvac);
+        if (jsonAudio?.ambient?.machinery) Object.assign(this.config.machinery, jsonAudio.ambient.machinery);
+        if (jsonAudio?.beeps) Object.assign(this.config.beeps, jsonAudio.beeps);
+        if (jsonAudio?.speech?.workerPhrases) this.config.workerPhrases = jsonAudio.speech.workerPhrases;
+        if (jsonAudio?.speech?.paPhrases) this.config.paPhrases = jsonAudio.speech.paPhrases;
+        if (jsonAudio?.speech?.workerInterval) this.config.workerInterval = jsonAudio.speech.workerInterval;
+        if (jsonAudio?.speech?.paInterval) this.config.paInterval = jsonAudio.speech.paInterval;
+        if (jsonAudio?.speech?.workerRange) this.config.workerRange = jsonAudio.speech.workerRange;
+        if (jsonAudio?.masterVolume !== undefined) this.config.masterVolume = jsonAudio.masterVolume;
+
+        // Randomize first timers
+        const c = this.config;
+        this.beepTimer = c.beeps.interval ? c.beeps.interval[0] + Math.random() * (c.beeps.interval[1]-c.beeps.interval[0]) : 999;
+        this.workerSpeechTimer = c.workerInterval[0] + Math.random() * (c.workerInterval[1]-c.workerInterval[0]);
+        this.paSpeechTimer = c.paInterval[0] + Math.random() * (c.paInterval[1]-c.paInterval[0]);
+        console.log(`🔊 Audio config: preset=${presetName}, hvac=${c.hvac.enabled}, beeps=${c.beeps.enabled}, phrases=${c.workerPhrases.length}+${c.paPhrases.length}`);
+    }
+
+    unlock() {
+        if (this.unlocked || !this.config) return;
+        try {
+            const c = this.config;
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            this.masterGain = this.ctx.createGain();
+            this.masterGain.gain.value = c.masterVolume;
+            this.masterGain.connect(this.ctx.destination);
+
+            // HVAC / building hum — brown noise through low-pass
+            if (c.hvac.enabled) {
+                const bufSize = this.ctx.sampleRate * 2;
+                const noiseBuf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+                const data = noiseBuf.getChannelData(0);
+                let last = 0;
+                for (let i = 0; i < bufSize; i++) {
+                    const white = Math.random() * 2 - 1;
+                    last = (last + 0.02 * white) / 1.02;
+                    data[i] = last * 3.5;
+                }
+                const hvac = this.ctx.createBufferSource();
+                hvac.buffer = noiseBuf;
+                hvac.loop = true;
+                const hvacFilter = this.ctx.createBiquadFilter();
+                hvacFilter.type = 'lowpass';
+                hvacFilter.frequency.value = c.hvac.frequency;
+                const hvacGain = this.ctx.createGain();
+                hvacGain.gain.value = c.hvac.volume;
+                hvac.connect(hvacFilter);
+                hvacFilter.connect(hvacGain);
+                hvacGain.connect(this.masterGain);
+                hvac.start();
+            }
+
+            // Machinery drone — oscillator + modulation
+            if (c.machinery?.enabled) {
+                const osc = this.ctx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.value = c.machinery.frequency;
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = c.machinery.frequency * 3.5;
+                const gain = this.ctx.createGain();
+                gain.gain.value = c.machinery.volume;
+                const mod = this.ctx.createOscillator();
+                mod.frequency.value = c.machinery.modRate || 2.3;
+                const modGain = this.ctx.createGain();
+                modGain.gain.value = 8;
+                mod.connect(modGain);
+                modGain.connect(osc.frequency);
+                osc.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.masterGain);
+                osc.start();
+                mod.start();
+            }
+
+            this.unlocked = true;
+            console.log('🔊 Audio unlocked');
+        } catch (e) {
+            console.warn('Audio init failed:', e);
+        }
+    }
+
+    doBeep() {
+        if (!this.ctx || !this.config.beeps.enabled) return;
+        const now = this.ctx.currentTime;
+        const freq = this.config.beeps.frequency;
+        const vol = this.config.beeps.volume;
+        for (let i = 0; i < 3; i++) {
+            const osc = this.ctx.createOscillator();
+            osc.type = 'square';
+            osc.frequency.value = freq;
+            const g = this.ctx.createGain();
+            g.gain.setValueAtTime(0, now + i * 0.35);
+            g.gain.linearRampToValueAtTime(vol, now + i * 0.35 + 0.02);
+            g.gain.setValueAtTime(vol, now + i * 0.35 + 0.15);
+            g.gain.linearRampToValueAtTime(0, now + i * 0.35 + 0.18);
+            osc.connect(g);
+            g.connect(this.masterGain);
+            osc.start(now + i * 0.35);
+            osc.stop(now + i * 0.35 + 0.2);
+        }
+    }
+
+    speak(text, rate, pitch) {
+        if (!this.speechReady) return;
+        if (window.speechSynthesis.speaking) return;
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = rate || 1.0;
+        u.pitch = pitch || 1.0;
+        u.volume = 0.7;
+        window.speechSynthesis.speak(u);
+    }
+
+    speakPA(text) {
+        if (!this.speechReady) return;
+        if (window.speechSynthesis.speaking) return;
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 0.85;
+        u.pitch = 0.8;
+        u.volume = 0.9;
+        window.speechSynthesis.speak(u);
+    }
+
+    tick(dt, camX, camZ, agents) {
+        if (!this.unlocked || !this.config) return;
+        const c = this.config;
+
+        // Beeps
+        if (c.beeps.enabled) {
+            this.beepTimer -= dt;
+            if (this.beepTimer <= 0) {
+                this.doBeep();
+                this.beepTimer = c.beeps.interval[0] + Math.random() * (c.beeps.interval[1]-c.beeps.interval[0]);
+            }
+        }
+
+        // Worker speech (proximity)
+        if (c.workerPhrases.length > 0 && agents && agents.length > 0) {
+            this.workerSpeechTimer -= dt;
+            if (this.workerSpeechTimer <= 0) {
+                let minD = Infinity;
+                for (const w of agents) {
+                    const dx = w.px-camX, dz = w.pz-camZ;
+                    const d = dx*dx + dz*dz;
+                    if (d < minD) minD = d;
+                }
+                if (minD < c.workerRange * c.workerRange) {
+                    let idx;
+                    do { idx = Math.floor(Math.random() * c.workerPhrases.length); }
+                    while (idx === this.lastWorkerPhrase && c.workerPhrases.length > 1);
+                    this.lastWorkerPhrase = idx;
+                    this.speak(c.workerPhrases[idx], 0.9 + Math.random()*0.3, 0.8 + Math.random()*0.5);
+                }
+                this.workerSpeechTimer = c.workerInterval[0] + Math.random() * (c.workerInterval[1]-c.workerInterval[0]);
+            }
+        }
+
+        // PA announcements
+        if (c.paPhrases.length > 0) {
+            this.paSpeechTimer -= dt;
+            if (this.paSpeechTimer <= 0) {
+                let idx;
+                do { idx = Math.floor(Math.random() * c.paPhrases.length); }
+                while (idx === this.lastPAPhrase && c.paPhrases.length > 1);
+                this.lastPAPhrase = idx;
+                this.speakPA(c.paPhrases[idx]);
+                this.paSpeechTimer = c.paInterval[0] + Math.random() * (c.paInterval[1]-c.paInterval[0]);
+            }
+        }
+    }
+}
+
+const audio = new Audio();
+
+
+// ══════════════════════════════════════════════════
+// BOOT
+// ══════════════════════════════════════════════════
+async function boot(json) {
+    // Compile scene
+    const scene = compileScene(json);
+
+    // Init GPU
+    const ok = await renderer.init();
+    if (!ok) return;
+
+    // Build model
+    const model = new Model({
+        objects: scene.objects,
+        agents: scene.agents,
+        doors: scene.doors,
+        waterBodies: scene.waterBodies,
+        cam: scene.cam,
+        input: { fwd:0, back:0, left:0, right:0, sprint:0, tmx:0, tmz:0 },
+        lighting: scene.lighting,
+        atmos: scene.atmos,
+        conveyorData: scene.conveyorData,
+        hud: { fps:0, drawn:0, px:0, pz:0 },
+    });
+
+    // View
+    const view = new View();
+    view.addProjection('fps', 'hud', s => { document.getElementById('fps').textContent = s.hud.fps; });
+    view.addProjection('drawn', 'hud', s => { document.getElementById('drawn').textContent = s.hud.drawn; });
+    view.addProjection('pos', 'hud', s => { document.getElementById('pos').textContent = 'X:'+s.hud.px.toFixed(0)+' Z:'+s.hud.pz.toFixed(0); });
+    view.observe(model);
+
+    // HUD branding
+    const hud = json.hud || {};
+    if (hud.branding) {
+        const b = hud.branding;
+        const brandEl = document.getElementById('hud-brand');
+        brandEl.style.display = 'block';
+        brandEl.style.background = b.color || '#0e7490';
+        document.getElementById('hud-logo').textContent = b.logo || scene.meta.name || 'SDA';
+        document.getElementById('hud-logo').style.color = b.accent || '#fff';
+        document.getElementById('hud-subtitle').textContent = b.subtitle || '';
+    } else {
+        document.getElementById('hud-subtitle').textContent = scene.meta.name || 'SDA.Render3D';
+    }
+
+    // Show 3D, hide drop
+    document.getElementById('drop-screen').classList.add('hidden');
+    document.getElementById('hud').style.display = '';
+    document.getElementById('hint').style.display = '';
+
+    // Audio
+    audio.init(json.audio);
+
+    // Controller
+    const ctrl = new Controller(model, view, renderer);
+    ctrl.setupEventListeners();
+    ctrl.start();
+
+    console.log('✅ SDA.Render3D — Scene live.');
+    console.log(`   ${scene.objects.length} objects, ${scene.agents.length} agents`);
+    window._model = model; window._ctrl = ctrl;
+}
+
+
+// ══════════════════════════════════════════════════
+// NATURAL LANGUAGE PARSER — text → JSON
+// Pattern matching on the declarative vocabulary
+// ══════════════════════════════════════════════════
+function parseDescription(text) {
+    const t = text.toLowerCase();
+    const json = { meta: {}, space: {}, zones: [], equipment: [], people: [], atmosphere: {}, camera: {} };
+
+    // ── Extract numbers near keywords ──
+    function numNear(keyword, def) {
+        const re = new RegExp('(\\d+)\\s*' + keyword + '|' + keyword + '\\s*(\\d+)', 'i');
+        const m = t.match(re);
+        return m ? parseInt(m[1] || m[2]) : def;
+    }
+    function hasWord(...words) { return words.some(w => t.includes(w)); }
+
+    // ── META: type detection ──
+    let metaType = 'warehouse';
+    if (hasWord('hospital','clinic','medical','ward')) metaType = 'warehouse'; // interior
+    else if (hasWord('city','block','street','downtown','outdoor','park','town')) metaType = 'exterior';
+    else if (hasWord('office','corporate')) metaType = 'warehouse';
+    else if (hasWord('factory','plant','manufacturing')) metaType = 'warehouse';
+    json.meta.type = metaType;
+
+    // ── NAME ──
+    if (hasWord('warehouse')) json.meta.name = 'Warehouse';
+    else if (hasWord('hospital','medical')) json.meta.name = 'Medical Center';
+    else if (hasWord('factory','plant')) json.meta.name = 'Factory';
+    else if (hasWord('office')) json.meta.name = 'Office Building';
+    else if (hasWord('hangar')) json.meta.name = 'Hangar';
+    else if (hasWord('school','classroom')) json.meta.name = 'School';
+    else if (hasWord('city','downtown','block')) json.meta.name = 'City Block';
+    else if (hasWord('abandoned','condemned')) json.meta.name = 'Abandoned Site';
+    else json.meta.name = 'Environment';
+
+    // ── SIZE ──
+    let sizeScale = 1.0;
+    if (hasWord('tiny','very small')) sizeScale = 0.5;
+    else if (hasWord('small','compact')) sizeScale = 0.7;
+    else if (hasWord('medium')) sizeScale = 1.0;
+    else if (hasWord('large','big')) sizeScale = 1.4;
+    else if (hasWord('huge','massive','very large','enormous')) sizeScale = 1.8;
+
+    if (metaType === 'exterior') {
+        json.space = { width: Math.round(120*sizeScale), depth: Math.round(120*sizeScale), height: 40 };
+    } else {
+        const baseW = hasWord('hospital','office') ? 36 : hasWord('factory','hangar') ? 50 : 44;
+        const baseD = hasWord('hospital','office') ? 42 : hasWord('factory','hangar') ? 60 : 50;
+        const baseH = hasWord('hospital','office') ? 3.5 : hasWord('factory','hangar') ? 9 : 8;
+        json.space = {
+            width: Math.round(baseW * sizeScale),
+            depth: Math.round(baseD * sizeScale),
+            height: Math.round(baseH * (sizeScale > 1.2 ? 1.1 : 1) * 10) / 10,
+        };
+        json.space.columns = { spacing: [Math.round(json.space.width/4), Math.round(json.space.depth/4)], inset: 8, material: hasWord('concrete column') ? 'concrete' : 'steel' };
+    }
+
+    // ── AGE ──
+    if (hasWord('new','pristine','brand new','fresh')) json.space.age = 1;
+    else if (hasWord('old','aged','worn')) json.space.age = 20;
+    else if (hasWord('ancient','abandoned','condemned','decrepit','very old')) json.space.age = 35;
+    else json.space.age = 8;
+
+    // ── ATMOSPHERE ──
+    if (hasWord('moody','dark','noir','dramatic','dim','creepy')) json.atmosphere.mood = 'moody';
+    else if (hasWord('military','harsh','tactical','stern')) json.atmosphere.mood = 'military';
+    else if (hasWord('clean','bright','sterile','clinical','white')) json.atmosphere.mood = 'clean';
+    else if (hasWord('outdoor','outside','daylight','sunny')) json.atmosphere.mood = 'outdoor';
+    else json.atmosphere.mood = 'industrial';
+
+    // ── AUDIO ──
+    if (hasWord('hospital','medical','clinic')) json.audio = { preset: 'hospital' };
+    else if (hasWord('office')) json.audio = { preset: 'office' };
+    else if (hasWord('factory','plant')) json.audio = { preset: 'factory' };
+    else if (hasWord('quiet','silent','abandoned')) json.audio = { preset: 'quiet' };
+    else if (metaType === 'exterior') json.audio = { preset: 'outdoor' };
+    else json.audio = { preset: 'warehouse' };
+
+    // ── ZONES ──
+    // Racking
+    const rackRows = numNear('row', 0);
+    if (rackRows > 0 || (hasWord('racking','rack','shelving','shelves') && !hasWord('no rack','without rack'))) {
+        const rows = rackRows || (sizeScale < 0.8 ? 2 : sizeScale < 1.2 ? 3 : 5);
+        const levels = numNear('level', numNear('tier', 4));
+        let fill = 0.75;
+        if (hasWord('empty','mostly empty','sparse')) fill = 0.2;
+        else if (hasWord('half full','half empty','partial')) fill = 0.5;
+        else if (hasWord('full','packed','loaded')) fill = 0.95;
+        json.zones.push({ type: 'racking', rows, levels, fill, aisleWidth: 3.8 });
+    }
+
+    // Dock doors
+    const dockCount = numNear('dock', numNear('door', 0));
+    if (dockCount > 0 || hasWord('dock','loading dock','bay')) {
+        json.zones.push({ type: 'dock', count: dockCount || 3, wall: 'south' });
+    }
+
+    // Rooms
+    if (hasWord('office','front office')) {
+        const hw = json.space.width/2, hd = json.space.depth/2;
+        json.zones.push({ type:'room', name:'Office', bounds:[-hw,-hd,-hw+9,-hd+7], height:3, door:{wall:'east',position:-hd+3}, furniture:'office' });
+    }
+    if (hasWord('break room','breakroom','break area','lunch')) {
+        const hw = json.space.width/2, hd = json.space.depth/2;
+        json.zones.push({ type:'room', name:'Break Room', bounds:[-hw,-hd+7,-hw+8,-hd+13], height:3, door:{wall:'east',position:-hd+10}, furniture:'breakroom' });
+    }
+    if (hasWord('tool room','tool crib','workshop','tool shop')) {
+        const hw = json.space.width/2, hd = json.space.depth/2;
+        json.zones.push({ type:'room', name:'Tool Room', bounds:[-hw,hd-8,-hw+7,hd], height:3, door:{wall:'east',position:hd-4}, furniture:'toolcrib' });
+    }
+
+    // Staging
+    if (hasWord('staging','stage area','pallet area') || hasWord('warehouse','factory')) {
+        json.zones.push({ type: 'staging', rows: 1, fill: 0.7 });
+    }
+
+    // Safety (always for interiors)
+    if (metaType !== 'exterior') {
+        json.zones.push({ type: 'safety' });
+    }
+
+    // Overhead
+    if (metaType !== 'exterior' && !hasWord('office','hospital','school')) {
+        json.zones.push({ type: 'overhead', fireSuppression: true });
+    }
+
+    // ── HOSPITAL / MEDICAL ──
+    if (hasWord('hospital','medical','clinic','ward')) {
+        json.space.floor = 'polished';
+        const beds = numNear('bed', 6);
+        const wards = numNear('ward', hasWord('2 ward','two ward') ? 2 : 1);
+        const hw = json.space.width/2;
+        for (let i = 0; i < wards; i++) {
+            const wx = i === 0 ? -hw+1 : 2;
+            json.zones.push({ type: 'furniture', preset: 'hospital-ward', position: [wx+6, -10], width: 12, depth: 14, beds });
+        }
+        if (hasWord('nurse','nurses station','station')) {
+            json.zones.push({ type: 'room', name: 'Nurses Station', bounds: [-4,-8,4,-2], height: 3.2, door:{wall:'south',position:0}, furniture: 'office' });
+        }
+    }
+
+    // ── SCHOOL / CLASSROOM ──
+    if (hasWord('school','classroom')) {
+        const nClass = numNear('classroom', numNear('room', 2));
+        for (let i = 0; i < nClass; i++) {
+            const cz = -json.space.depth/2 + 4 + i * 18;
+            json.zones.push({ type: 'furniture', preset: 'classroom', position: [0, cz+7], width: json.space.width-4, depth: 14 });
+        }
+    }
+
+    // ── OFFICE BUILDING (exterior) ──
+    if (hasWord('office building') && metaType === 'exterior') {
+        json.zones.push({ type: 'building', position: [0, 0], footprint: [22, 16], floors: numNear('floor', numNear('story', numNear('storey', 3))), style: 'commercial' });
+    }
+
+    // ── EXTERIOR: streets, buildings, parking, parks, etc. ──
+    if (metaType === 'exterior') {
+        const hw = json.space.width/2, hd = json.space.depth/2;
+        json.zones.push({ type: 'terrain', style: hasWord('snow','winter')?'snow':hasWord('desert','sand')?'sand':hasWord('dirt')?'dirt':'grass', tileSize: 10 });
+
+        // Streets
+        if (hasWord('street','road','intersection','downtown','neighborhood','suburb')) {
+            json.zones.push({ type: 'street', width: 12, path: [[0,-hd],[0,hd]] });
+            json.zones.push({ type: 'street', width: 10, path: [[-hw,0],[hw,0]] });
+            json.zones.push({ type: 'lamp-posts', path: [[0,-hd],[0,hd]], spacing: 18, offset: 9 });
+        }
+        if (hasWord('intersection','downtown')) {
+            json.zones.push({ type: 'intersection', position: [0, 0], signals: true });
+            json.zones.push({ type: 'signage', signs: [
+                { type:'stop', position:[-9,-9] }, { type:'stop', position:[9,9] },
+                { type:'street', position:[-8,8] }, { type:'speed', position:[10,-12] }
+            ]});
+        }
+
+        // Buildings
+        const nBuildings = numNear('building', 0);
+        if (nBuildings > 0 || hasWord('building','buildings','downtown')) {
+            const nb = nBuildings || 4;
+            const styles = ['commercial','brick','residential','industrial'];
+            const positions = [[-28,-28],[28,-28],[-28,28],[28,28],[-28,0],[28,0]];
+            for (let i = 0; i < Math.min(nb, 6); i++) {
+                const p = positions[i];
+                const floors = 2 + Math.floor(rng()*4);
+                json.zones.push({ type: 'building', position: p, footprint: [16+rng()*10, 12+rng()*8], floors, style: styles[i%styles.length] });
+            }
+        }
+
+        // Houses / residential
+        if (hasWord('house','houses','neighborhood','residential','suburb')) {
+            const nh = numNear('house', 4);
+            json.zones.push({ type: 'residential', count: nh, side: 'east', streetX: 0, startZ: -35, spacing: 14 });
+            if (nh > 3) json.zones.push({ type: 'residential', count: Math.ceil(nh/2), side: 'west', streetX: 0, startZ: -25, spacing: 16 });
+        }
+
+        // Retail strip / strip mall
+        if (hasWord('strip mall','retail','shops','stores','shopping')) {
+            json.zones.push({ type: 'retail-strip', position: [-30, 35], stores: numNear('store', 4) });
+        }
+
+        // Gas station
+        if (hasWord('gas station','fuel','petrol')) {
+            json.zones.push({ type: 'gas-station', position: [35, -30] });
+        }
+
+        // Parking
+        if (hasWord('parking','lot')) {
+            json.zones.push({ type: 'parking', position: [30, -45], width: 30, depth: 16, rows: 1, fill: 0.5 });
+        }
+
+        // Park
+        if (hasWord('park','garden','green space','playground')) {
+            const parkPos = hasWord('street','road') ? [35, 30] : [0, 0];
+            json.zones.push({ type: 'park', position: parkPos, width: 25+Math.round(sizeScale*10), depth: 25+Math.round(sizeScale*8) });
+        }
+        if (hasWord('playground','play area','swing','slide')) {
+            json.zones.push({ type: 'playground', position: [hasWord('park')?45:0, hasWord('park')?30:0] });
+        }
+
+        // Water
+        if (hasWord('pond','lake','water','river')) {
+            const wPreset = hasWord('ocean','sea')?'ocean':hasWord('tropical')?'tropical':hasWord('murky','swamp')?'murky':hasWord('arctic','frozen','icy')?'arctic':hasWord('river','stream')?'river':'pond';
+            json.zones.push({ type: 'water', position: [hasWord('park')?35:-20, hasWord('park')?20:20], width: 15+rng()*10, depth: 10+rng()*8, preset: wPreset });
+        }
+
+        // Trees
+        if (hasWord('tree','trees','forest','wooded')) {
+            const nt = numNear('tree', hasWord('forest','wooded') ? 30 : 10);
+            const species = hasWord('pine','evergreen')?'pine':hasWord('palm','tropical')?'palm':hasWord('oak')?'oak':'mixed';
+            json.zones.push({ type: 'trees', count: nt, species, region:{x:[-hw+5,hw-5],z:[-hd+5,hd-5]}, clearRadius: hasWord('street','road')?12:0 });
+        }
+
+        // Fence
+        if (hasWord('fence','fenced')) {
+            const fw = hw*0.7, fd = hd*0.7;
+            const style = hasWord('wood fence','wooden')?'wood':hasWord('metal','iron')?'metal':'chain';
+            json.zones.push({ type: 'fence', path: [[-fw,-fd],[fw,-fd],[fw,fd],[-fw,fd],[-fw,-fd]], height: 2.0, style });
+        }
+
+        // Billboard
+        if (hasWord('billboard','sign','advertisement')) {
+            json.zones.push({ type: 'signage', signs: [{ type:'billboard', position:[-40, -30] }] });
+        }
+
+        // ── Auto exterior detail ──
+        // Clouds — always for outdoor scenes
+        const cloudMood = hasWord('moody','dark','overcast') ? 'moody' : 'outdoor';
+        const cloudCount = hasWord('cloudy','overcast') ? 30 : hasWord('clear') ? 8 : 18;
+        json.zones.push({ type: 'clouds', count: cloudCount, mood: cloudMood, width: hw*3, depth: hd*3, minHeight: 35, maxHeight: 65 });
+
+        // Rocks
+        if (!hasWord('clean','pristine','new')) {
+            json.zones.push({ type: 'rocks', count: 15+Math.round(sizeScale*10), region:{ x:[-hw+5,hw-5], z:[-hd+5,hd-5] }, clearRadius: hasWord('street','road')?12:6 });
+        }
+
+        // Utility poles along streets
+        if (hasWord('street','road','downtown','suburb','neighborhood')) {
+            json.zones.push({ type: 'utility-poles', path: [[0,-hd+5],[0,hd-5]], spacing: 25, side: 'right', offset: 10 });
+        }
+
+        // Dumpsters near buildings
+        if (hasWord('building','store','mall','warehouse','strip')) {
+            const dumpPos = [];
+            for (let i = 0; i < Math.min(2, Math.ceil(sizeScale)); i++) dumpPos.push([hw*0.5-5+i*12, hd*0.3+i*8]);
+            json.zones.push({ type: 'dumpsters', positions: dumpPos });
+        }
+
+        // Fire hydrants along sidewalks
+        if (hasWord('street','road','sidewalk','downtown','suburb','neighborhood')) {
+            const hydPos = [];
+            for (let z = -hd+15; z < hd-10; z += 30) hydPos.push([-9, z]);
+            json.zones.push({ type: 'hydrants', positions: hydPos });
+        }
+    }
+
+    // ── EQUIPMENT ──
+    const nForklifts = numNear('forklift', 0);
+    if (nForklifts > 0 || hasWord('forklift','forklifts','fork lift')) {
+        const nf = nForklifts || 2;
+        const hd = json.space.depth/2;
+        for (let i = 0; i < nf; i++) {
+            json.equipment.push({ type: 'forklift', position: [-8+i*8, hd-10-i*4] });
+        }
+    }
+
+    const nJacks = numNear('pallet jack', numNear('jack', 0));
+    if (nJacks > 0 || hasWord('pallet jack')) {
+        json.equipment.push({ type: 'pallet-jack', position: [4, 10] });
+    }
+
+    if (hasWord('conveyor','belt','conveyor belt')) {
+        const hd = json.space.depth/2;
+        json.equipment.push({ type: 'conveyor', path: [[12,0.85,hd-3],[0,0.85,hd-3],[-12,0.85,hd-3]], boxes: 8, speed: 1.5 });
+    }
+
+    // Vehicles (exterior)
+    if (metaType === 'exterior') {
+        if (hasWord('car','cars')) {
+            const nc = numNear('car', 2);
+            for (let i = 0; i < nc; i++) json.equipment.push({ type: 'car', position: [15+i*6, -18-i*3], facing: 'N' });
+        }
+        if (hasWord('truck')) json.equipment.push({ type: 'truck', position: [-18, 12], facing: 'S' });
+        if (hasWord('bus')) json.equipment.push({ type: 'bus', position: [-4, -35], facing: 'N' });
+    }
+
+    // ── PEOPLE ──
+    if (metaType !== 'exterior') {
+        const nWorkers = numNear('worker', numNear('people', numNear('person', 0)));
+        if (nWorkers > 0 || hasWord('worker','people','staff')) {
+            const nw = nWorkers || 4;
+            const inAisles = Math.ceil(nw * 0.6);
+            const inOther = nw - inAisles;
+            if (inAisles > 0) json.people.push({ area: 'aisles', count: inAisles, type: 'warehouse-worker' });
+            if (inOther > 0) json.people.push({ area: 'staging', count: inOther, type: 'warehouse-worker' });
+        } else {
+            json.people.push({ area: 'aisles', count: 2, type: 'warehouse-worker' });
+        }
+    } else {
+        json.people.push({ area: 'staging', count: 3, type: 'warehouse-worker' });
+    }
+
+    // ── CAMERA ──
+    if (metaType === 'exterior') {
+        json.camera = { start: [0, 1.7, json.space.depth/3], fov: 1.3, speed: 6, far: 300,
+            bounds: { min: [-json.space.width/2+2,1.7,-json.space.depth/2+2], max: [json.space.width/2-2,1.7,json.space.depth/2-2] } };
+    } else {
+        json.camera = { start: 'entrance', speed: 4 };
+    }
+
+    // ── HUD ──
+    json.hud = { branding: { logo: json.meta.name.split(' ')[0].toUpperCase().substring(0,6), color: '#1a1a2e', accent: '#eab308', subtitle: json.meta.name } };
+
+    console.log('📝 Parsed description → JSON:', json);
+    return json;
+}
+
+
+// ══════════════════════════════════════════════════
+// DROP ZONE
+// ══════════════════════════════════════════════════
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+function handleFile(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+        try {
+            const json = JSON.parse(e.target.result);
+            boot(json);
+        } catch (err) {
+            alert('Invalid JSON: ' + err.message);
+        }
+    };
+    reader.readAsText(file);
+}
+
+dropZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+// Describe button
+document.getElementById('describe-btn').addEventListener('click', () => {
+    const text = document.getElementById('describe-input').value.trim();
+    if (!text) return;
+    resetRng(42);
+    const json = parseDescription(text);
+    boot(json);
+});
+// Enter key in textarea (shift+enter for newline)
+document.getElementById('describe-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        document.getElementById('describe-btn').click();
+    }
+});
+// Example chips
+document.querySelectorAll('.describe-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+        document.getElementById('describe-input').value = chip.dataset.text;
+    });
+});
+
+</script>
+</body>
+</html>
